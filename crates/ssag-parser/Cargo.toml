@@ -1,0 +1,16 @@
+[package]
+name = "ssag-parser"
+description = "Parser for the SageSyn Agent Programming Language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ssag-lexer.workspace = true
+thiserror.workspace = true
+miette.workspace = true
+
+[dev-dependencies]
+pretty_assertions = "1.4"

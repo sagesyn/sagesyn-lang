@@ -1,0 +1,37 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Editor backups
+*.bak
+*.orig
+
+# Coverage
+*.profraw
+*.profdata
+coverage/
+lcov.info
+
+# Generated files
+*.generated.*
+
+# Local configuration
+.env
+.env.local

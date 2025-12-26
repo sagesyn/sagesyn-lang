@@ -1,0 +1,57 @@
+// Basic Weather Agent Example
+// Demonstrates core SageSyn language features
+
+agent WeatherAgent {
+  description: "Provides weather information for any city"
+  version: "1.0.0"
+
+  state {
+    last_query: optional<string>
+    cache: record<string, WeatherData>
+  }
+
+  tool get_weather(city: string) -> WeatherData {
+    description: "Get current weather for a city"
+    mcp_server: weather_api
+    mcp_tool: current_weather
+  }
+
+  tool format_weather(data: WeatherData) -> string {
+    description: "Format weather data as readable text"
+    return `Weather in ${data.city}: ${data.temp}F, ${data.conditions}`
+  }
+
+  on user_message {
+    let city = message.content
+    state.last_query = city
+
+    if state.cache.has(city) {
+      let cached = state.cache[city]
+      emit response(format_weather(cached))
+    } else {
+      let weather = get_weather(city)
+      state.cache.set(city, weather)
+      emit response(format_weather(weather))
+    }
+  }
+}
+
+type WeatherData {
+  city: string
+  temp: number
+  conditions: string
+  humidity: number
+  wind_speed: number
+  timestamp: timestamp
+}
+
+// Helper function
+fn celsius_to_fahrenheit(c: number) -> number {
+  return c * 9 / 5 + 32
+}
+
+// Async function example
+async fn fetch_forecast(city: string, days: number) -> array<WeatherData> {
+  let results = await http.get(`/forecast/${city}?days=${days}`)
+  return results.data
+}
