@@ -343,7 +343,7 @@ pub struct MemberExpr {
     pub span: Span,
 }
 
-/// Index access expression (a[b]).
+/// Index access expression (`a[b]`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexExpr {
     pub object: Box<Expr>,
