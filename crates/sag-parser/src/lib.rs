@@ -1,11 +1,11 @@
-//! Parser for the SageSyn Agent Programming Language.
+//! Parser for the Sage Agent Programming Language.
 //!
-//! This crate provides parsing for `.ssag` files, converting tokens into an Abstract Syntax Tree (AST).
+//! This crate provides parsing for `.sag` files, converting tokens into an Abstract Syntax Tree (AST).
 //!
 //! # Example
 //!
 //! ```
-//! use ssag_parser::Parser;
+//! use sag_parser::Parser;
 //!
 //! let source = r#"agent MyAgent { description: "Hello" }"#;
 //! let program = Parser::parse(source).expect("parse error");
@@ -16,16 +16,16 @@
 pub mod ast;
 
 pub use ast::*;
-pub use ssag_lexer::Span;
+pub use sag_lexer::Span;
 
 use miette::{Diagnostic, SourceSpan};
-use ssag_lexer::{Lexer, SpannedToken, Token};
+use sag_lexer::{Lexer, SpannedToken, Token};
 use thiserror::Error;
 
 /// Parser error.
 #[derive(Error, Diagnostic, Debug, Clone)]
 #[error("{message}")]
-#[diagnostic(code(ssag::parser::error))]
+#[diagnostic(code(sag::parser::error))]
 pub struct ParseError {
     message: String,
     #[source_code]
@@ -53,7 +53,7 @@ impl ParseError {
     }
 }
 
-/// The SageSyn parser.
+/// The Sage Agent parser.
 pub struct Parser<'src> {
     source: &'src str,
     tokens: Vec<SpannedToken>,
@@ -62,7 +62,7 @@ pub struct Parser<'src> {
 
 impl<'src> Parser<'src> {
     /// Create a new parser for the given source code.
-    pub fn new(source: &'src str) -> Result<Self, ssag_lexer::LexerError> {
+    pub fn new(source: &'src str) -> Result<Self, sag_lexer::LexerError> {
         let lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer
             .filter_map(|r| r.ok())

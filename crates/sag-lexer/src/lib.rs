@@ -1,11 +1,11 @@
-//! Lexer for the SageSyn Agent Programming Language.
+//! Lexer for the Sage Agent Programming Language.
 //!
-//! This crate provides tokenization for `.ssag` files using the `logos` lexer generator.
+//! This crate provides tokenization for `.sag` files using the `logos` lexer generator.
 //!
 //! # Example
 //!
 //! ```
-//! use ssag_lexer::Lexer;
+//! use sag_lexer::Lexer;
 //!
 //! let source = r#"agent MyAgent { description: "Hello" }"#;
 //! let lexer = Lexer::new(source);
@@ -26,7 +26,7 @@ use thiserror::Error;
 /// Lexer error.
 #[derive(Error, Diagnostic, Debug, Clone, PartialEq)]
 #[error("Invalid token")]
-#[diagnostic(code(ssag::lexer::invalid_token))]
+#[diagnostic(code(sag::lexer::invalid_token))]
 pub struct LexerError {
     #[source_code]
     src: String,
@@ -43,7 +43,7 @@ impl LexerError {
     }
 }
 
-/// The SageSyn lexer.
+/// The Sage Agent lexer.
 ///
 /// Wraps a `logos` lexer and provides iteration over spanned tokens.
 pub struct Lexer<'src> {

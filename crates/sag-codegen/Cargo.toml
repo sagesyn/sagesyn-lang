@@ -1,6 +1,6 @@
 [package]
-name = "ssag-types"
-description = "Type checker for the SageSyn Agent Programming Language"
+name = "sag-codegen"
+description = "Code generator for the Sage Agent Programming Language"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-ssag-parser.workspace = true
+sag-parser.workspace = true
+sag-types.workspace = true
 thiserror.workspace = true
 miette.workspace = true
 

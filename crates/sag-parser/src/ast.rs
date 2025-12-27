@@ -1,15 +1,15 @@
-//! Abstract Syntax Tree types for the SageSyn Agent Programming Language.
+//! Abstract Syntax Tree types for the Sage Agent Programming Language.
 
-use ssag_lexer::Span;
+use sag_lexer::Span;
 
-/// A complete SageSyn program (the root AST node).
+/// A complete Sage Agent program (the root AST node).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub items: Vec<Item>,
     pub span: Span,
 }
 
-/// Top-level items in a SageSyn program.
+/// Top-level items in a Sage Agent program.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Agent(Agent),

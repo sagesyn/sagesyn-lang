@@ -1,4 +1,4 @@
-//! Token definitions for the SageSyn Agent Programming Language.
+//! Token definitions for the Sage Agent Programming Language.
 
 use logos::Logos;
 use std::fmt;
@@ -37,7 +37,7 @@ impl SpannedToken {
     }
 }
 
-/// All tokens in the SageSyn language.
+/// All tokens in the Sage Agent language.
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\r\n\f]+")]
 pub enum Token {

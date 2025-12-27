@@ -1,10 +1,10 @@
-# SageSyn Language Compiler
+# Sage Agent Language Compiler
 
-The official compiler for the SageSyn Agent Programming Language (`.ssag`).
+The official compiler for the Sage Agent Programming Language (`.sag`).
 
 ## Overview
 
-SageSyn is a declarative, event-driven, statically-typed domain-specific language for defining AI agents. This compiler transforms `.ssag` files into TypeScript, Python, or Go code.
+Sage Agent is a declarative, event-driven, statically-typed domain-specific language for defining AI agents. This compiler transforms `.sag` files into TypeScript, Python, or Go code.
 
 ## Installation
 
@@ -13,7 +13,7 @@ SageSyn is a declarative, event-driven, statically-typed domain-specific languag
 ```bash
 git clone https://github.com/sagesyn/sagesyn-lang.git
 cd sagesyn-lang
-cargo install --path crates/ssag-cli
+cargo install --path crates/sag-cli
 ```
 
 ### Pre-built Binaries
@@ -26,37 +26,37 @@ Download from [Releases](https://github.com/sagesyn/sagesyn-lang/releases).
 
 ```bash
 # Compile to TypeScript (default)
-sagesyn compile agent.ssag
+sag compile agent.sag
 
 # Compile to specific target
-sagesyn compile agent.ssag --target typescript
-sagesyn compile agent.ssag --target python
-sagesyn compile agent.ssag --target go
+sag compile agent.sag --target typescript
+sag compile agent.sag --target python
+sag compile agent.sag --target go
 
 # Specify output file
-sagesyn compile agent.ssag --output dist/agent.ts
+sag compile agent.sag --output dist/agent.ts
 ```
 
 ### Check
 
 ```bash
 # Type check without generating code
-sagesyn check agent.ssag
+sag check agent.sag
 ```
 
 ### Parse
 
 ```bash
 # Print AST
-sagesyn parse agent.ssag
+sag parse agent.sag
 
 # Print tokens
-sagesyn lex agent.ssag
+sag lex agent.sag
 ```
 
 ## Language Overview
 
-```ssag
+```sag
 agent WeatherAgent {
   description: "Provides weather information"
   version: "1.0.0"
@@ -95,12 +95,12 @@ type WeatherData {
 ```
 sagesyn-lang/
 ├── crates/
-│   ├── ssag-lexer/     # Tokenizer (logos)
-│   ├── ssag-parser/    # Parser & AST
-│   ├── ssag-types/     # Type checker
-│   ├── ssag-codegen/   # Code generation
-│   └── ssag-cli/       # CLI binary
-├── examples/           # Example .ssag files
+│   ├── sag-lexer/     # Tokenizer (logos)
+│   ├── sag-parser/    # Parser & AST
+│   ├── sag-types/     # Type checker
+│   ├── sag-codegen/   # Code generation
+│   └── sag-cli/       # CLI binary
+├── examples/           # Example .sag files
 └── tests/              # Integration tests
 ```
 

@@ -1,17 +1,17 @@
-//! Code generator for the SageSyn Agent Programming Language.
+//! Code generator for the Sage Agent Programming Language.
 //!
 //! This crate generates code in various target languages from an AST.
 
 pub mod typescript;
 
 use miette::Diagnostic;
-use ssag_parser::Program;
+use sag_parser::Program;
 use thiserror::Error;
 
 /// Code generation error.
 #[derive(Error, Diagnostic, Debug, Clone)]
 #[error("code generation error: {message}")]
-#[diagnostic(code(ssag::codegen::error))]
+#[diagnostic(code(sag::codegen::error))]
 pub struct CodegenError {
     message: String,
 }

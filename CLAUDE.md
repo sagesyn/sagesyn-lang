@@ -1,8 +1,8 @@
-# SageSyn Language Compiler - Claude Code Instructions
+# Sage Agent Language Compiler - Claude Code Instructions
 
 ## Project Overview
 
-This is the Rust-based compiler for the SageSyn Agent Programming Language (`.ssag`). It compiles declarative agent definitions to TypeScript, Python, or Go.
+This is the Rust-based compiler for the Sage Agent Programming Language (`.sag`). It compiles declarative agent definitions to TypeScript, Python, or Go.
 
 ## Tech Stack
 
@@ -30,21 +30,21 @@ cargo clippy
 cargo fmt
 
 # Run CLI
-cargo run --bin sagesyn -- compile examples/basic-agent.ssag
-cargo run --bin sagesyn -- check examples/basic-agent.ssag
-cargo run --bin sagesyn -- parse examples/basic-agent.ssag
-cargo run --bin sagesyn -- lex examples/basic-agent.ssag
+cargo run --bin sag -- compile examples/basic-agent.sag
+cargo run --bin sag -- check examples/basic-agent.sag
+cargo run --bin sag -- parse examples/basic-agent.sag
+cargo run --bin sag -- lex examples/basic-agent.sag
 ```
 
 ## Crate Structure
 
 ```
 crates/
-├── ssag-lexer/     # Token definitions and lexer (logos-based)
-├── ssag-parser/    # AST types and recursive descent parser
-├── ssag-types/     # Type system and type checker
-├── ssag-codegen/   # Code generators (TypeScript, Python, Go)
-└── ssag-cli/       # CLI binary (clap-based)
+├── sag-lexer/     # Token definitions and lexer (logos-based)
+├── sag-parser/    # AST types and recursive descent parser
+├── sag-types/     # Type system and type checker
+├── sag-codegen/   # Code generators (TypeScript, Python, Go)
+└── sag-cli/       # CLI binary (clap-based)
 ```
 
 ## Code Style
@@ -59,7 +59,7 @@ crates/
 
 ### Naming
 
-- Crates: `ssag-*` (kebab-case)
+- Crates: `sag-*` (kebab-case)
 - Modules: `snake_case`
 - Types: `PascalCase`
 - Functions: `snake_case`
@@ -86,20 +86,20 @@ crates/
 
 ## Adding New Features
 
-1. Start with lexer tokens if needed (`ssag-lexer/src/token.rs`)
-2. Add AST nodes (`ssag-parser/src/ast.rs`)
-3. Update parser (`ssag-parser/src/lib.rs`)
-4. Add type checking (`ssag-types/src/lib.rs`)
-5. Update code generators (`ssag-codegen/src/*.rs`)
+1. Start with lexer tokens if needed (`sag-lexer/src/token.rs`)
+2. Add AST nodes (`sag-parser/src/ast.rs`)
+3. Update parser (`sag-parser/src/lib.rs`)
+4. Add type checking (`sag-types/src/lib.rs`)
+5. Update code generators (`sag-codegen/src/*.rs`)
 6. Add tests at each level
 7. Update CLI if new commands needed
 
 ## Key Files
 
 - `Cargo.toml` - Workspace manifest
-- `crates/ssag-lexer/src/token.rs` - Token definitions
-- `crates/ssag-parser/src/ast.rs` - AST node types
-- `crates/ssag-parser/src/lib.rs` - Parser implementation
-- `crates/ssag-types/src/lib.rs` - Type system
-- `crates/ssag-codegen/src/typescript.rs` - TypeScript generator
-- `crates/ssag-cli/src/main.rs` - CLI entry point
+- `crates/sag-lexer/src/token.rs` - Token definitions
+- `crates/sag-parser/src/ast.rs` - AST node types
+- `crates/sag-parser/src/lib.rs` - Parser implementation
+- `crates/sag-types/src/lib.rs` - Type system
+- `crates/sag-codegen/src/typescript.rs` - TypeScript generator
+- `crates/sag-cli/src/main.rs` - CLI entry point
