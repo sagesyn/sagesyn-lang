@@ -1,6 +1,8 @@
 //! Lexer for the Sage Agent Programming Language.
 //!
 //! This crate provides tokenization for `.sag` files using the `logos` lexer generator.
+
+#![allow(unused_assignments)]
 //!
 //! # Example
 //!
@@ -27,7 +29,6 @@ use thiserror::Error;
 #[derive(Error, Diagnostic, Debug, Clone, PartialEq)]
 #[error("Invalid token")]
 #[diagnostic(code(sag::lexer::invalid_token))]
-#[allow(unused)]
 pub struct LexerError {
     #[source_code]
     src: String,
@@ -36,7 +37,6 @@ pub struct LexerError {
 }
 
 impl LexerError {
-    #[allow(unused_assignments)]
     pub fn new(src: &str, span: Span) -> Self {
         Self {
             src: src.to_string(),
