@@ -1,26 +1,43 @@
 {
   "name": "sage-agent-language",
   "displayName": "Sage Agent Language",
-  "description": "Language support for Sage Agent Programming Language (.sag files)",
+  "description": "Language support for Sage Agent Programming Language (.sag files) - syntax highlighting, LSP, and more",
   "version": "0.1.1",
   "publisher": "sagesyn",
+  "author": {
+    "name": "SageSyn",
+    "url": "https://sagesyn.ai"
+  },
+  "license": "MIT",
   "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#0a0d12",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/sagesyn/sagesyn-lang"
+  },
+  "homepage": "https://sagesyn.ai",
+  "bugs": {
+    "url": "https://github.com/sagesyn/sagesyn-lang/issues"
   },
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters",
+    "Formatters"
   ],
   "keywords": [
     "sage",
     "agent",
     "ai",
     "dsl",
-    "language"
+    "language",
+    "mcp",
+    "llm"
   ],
   "activationEvents": [
     "onLanguage:sag"
