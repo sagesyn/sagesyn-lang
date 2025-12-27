@@ -1,19 +1,19 @@
-//! SageSyn Agent Programming Language CLI.
+//! Sage Agent Programming Language CLI.
 
 use clap::{Parser, Subcommand};
 use miette::{IntoDiagnostic, Result};
 use std::fs;
 use std::path::PathBuf;
 
-use ssag_codegen::{generate, Target};
-use ssag_parser::Parser as SsagParser;
-use ssag_types::TypeChecker;
+use sag_codegen::{generate, Target};
+use sag_parser::Parser as SagParser;
+use sag_types::TypeChecker;
 
 #[derive(Parser)]
-#[command(name = "sagesyn")]
+#[command(name = "sag")]
 #[command(author = "SageSyn <team@sagesyn.ai>")]
 #[command(version)]
-#[command(about = "SageSyn Agent Programming Language compiler", long_about = None)]
+#[command(about = "Sage Agent Programming Language compiler", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -21,7 +21,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Compile a .ssag file to a target language
+    /// Compile a .sag file to a target language
     Compile {
         /// Input file path
         #[arg(value_name = "FILE")]
@@ -36,14 +36,14 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Check a .ssag file for errors without generating code
+    /// Check a .sag file for errors without generating code
     Check {
         /// Input file path
         #[arg(value_name = "FILE")]
         file: PathBuf,
     },
 
-    /// Format a .ssag file
+    /// Format a .sag file
     Fmt {
         /// Input file path
         #[arg(value_name = "FILE")]
@@ -54,14 +54,14 @@ enum Commands {
         write: bool,
     },
 
-    /// Parse a .ssag file and print the AST
+    /// Parse a .sag file and print the AST
     Parse {
         /// Input file path
         #[arg(value_name = "FILE")]
         file: PathBuf,
     },
 
-    /// Tokenize a .ssag file and print tokens
+    /// Tokenize a .sag file and print tokens
     Lex {
         /// Input file path
         #[arg(value_name = "FILE")]
@@ -97,7 +97,7 @@ fn compile(file: &PathBuf, target_str: &str, output: Option<&PathBuf>) -> Result
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let program = SsagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
 
     // Type check
     if let Err(errors) = TypeChecker::check(&source, &program) {
@@ -137,7 +137,7 @@ fn check(file: &PathBuf) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let program = SsagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
 
     // Type check
     if let Err(errors) = TypeChecker::check(&source, &program) {
@@ -155,7 +155,7 @@ fn format_file(file: &PathBuf, _write: bool) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let _program = SsagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let _program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
 
     // TODO: Implement formatter
     println!("Formatting not yet implemented");
@@ -167,7 +167,7 @@ fn format_file(file: &PathBuf, _write: bool) -> Result<()> {
 fn parse(file: &PathBuf) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
-    let program = SsagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
 
     println!("{:#?}", program);
 
@@ -177,7 +177,7 @@ fn parse(file: &PathBuf) -> Result<()> {
 fn lex(file: &PathBuf) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
-    let lexer = ssag_lexer::Lexer::new(&source);
+    let lexer = sag_lexer::Lexer::new(&source);
     let tokens = lexer.tokenize().map_err(|e| miette::miette!("{}", e))?;
 
     for token in tokens {

@@ -1,16 +1,16 @@
-//! Type checker for the SageSyn Agent Programming Language.
+//! Type checker for the Sage Agent Programming Language.
 //!
-//! This crate provides static type checking for `.ssag` programs.
+//! This crate provides static type checking for `.sag` programs.
 
 use miette::{Diagnostic, SourceSpan};
-use ssag_parser::{Program, TypeExpr, Span};
+use sag_parser::{Program, TypeExpr, Span};
 use std::collections::HashMap;
 use thiserror::Error;
 
 /// Type checking error.
 #[derive(Error, Diagnostic, Debug, Clone)]
 #[error("{message}")]
-#[diagnostic(code(ssag::types::error))]
+#[diagnostic(code(sag::types::error))]
 pub struct TypeError {
     message: String,
     #[source_code]
