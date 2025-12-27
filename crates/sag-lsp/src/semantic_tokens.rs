@@ -6,17 +6,17 @@ use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegen
 
 /// Semantic token types we support.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::KEYWORD,      // 0
-    SemanticTokenType::TYPE,         // 1
-    SemanticTokenType::FUNCTION,     // 2
-    SemanticTokenType::VARIABLE,     // 3
-    SemanticTokenType::STRING,       // 4
-    SemanticTokenType::NUMBER,       // 5
-    SemanticTokenType::COMMENT,      // 6
-    SemanticTokenType::OPERATOR,     // 7
-    SemanticTokenType::PROPERTY,     // 8
-    SemanticTokenType::NAMESPACE,    // 9
-    SemanticTokenType::CLASS,        // 10
+    SemanticTokenType::KEYWORD,   // 0
+    SemanticTokenType::TYPE,      // 1
+    SemanticTokenType::FUNCTION,  // 2
+    SemanticTokenType::VARIABLE,  // 3
+    SemanticTokenType::STRING,    // 4
+    SemanticTokenType::NUMBER,    // 5
+    SemanticTokenType::COMMENT,   // 6
+    SemanticTokenType::OPERATOR,  // 7
+    SemanticTokenType::PROPERTY,  // 8
+    SemanticTokenType::NAMESPACE, // 9
+    SemanticTokenType::CLASS,     // 10
 ];
 
 /// The semantic tokens legend.

@@ -86,7 +86,9 @@ impl Diagnostic for ParseError {
     }
 
     fn help<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
-        self.help.as_ref().map(|h| Box::new(h.as_str()) as Box<dyn std::fmt::Display>)
+        self.help
+            .as_ref()
+            .map(|h| Box::new(h.as_str()) as Box<dyn std::fmt::Display>)
     }
 }
 
@@ -104,7 +106,12 @@ impl ParseError {
     }
 
     /// Create an error with a specific kind.
-    pub fn with_kind(kind: ParseErrorKind, message: impl Into<String>, src: &str, span: Span) -> Self {
+    pub fn with_kind(
+        kind: ParseErrorKind,
+        message: impl Into<String>,
+        src: &str,
+        span: Span,
+    ) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -160,7 +167,8 @@ impl ParseError {
             "unexpected end of file",
             src,
             span,
-        ).with_help("the file ended unexpectedly - check for unclosed braces or brackets")
+        )
+        .with_help("the file ended unexpectedly - check for unclosed braces or brackets")
     }
 
     /// Create an unexpected token error.
@@ -174,7 +182,12 @@ impl ParseError {
     }
 
     /// Create a missing delimiter error.
-    pub fn missing_delimiter(delimiter: &str, opening: Option<Span>, src: &str, span: Span) -> Self {
+    pub fn missing_delimiter(
+        delimiter: &str,
+        opening: Option<Span>,
+        src: &str,
+        span: Span,
+    ) -> Self {
         let mut err = Self::with_kind(
             ParseErrorKind::MissingDelimiter,
             format!("missing closing `{}`", delimiter),
@@ -251,7 +264,13 @@ impl<'src> Parser<'src> {
         let span = if items.is_empty() {
             Span::new(0, 0)
         } else {
-            Span::new(start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(0))
+            Span::new(
+                start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(0),
+            )
         };
 
         Ok(Program { items, span })
@@ -265,8 +284,10 @@ impl<'src> Parser<'src> {
             Some(Token::Fn) | Some(Token::Async) => Ok(Item::Function(self.parse_function()?)),
             Some(token) => {
                 let span = self.current_span();
-                Err(ParseError::unexpected_token(token, "top-level scope", self.source, span)
-                    .with_help("expected `agent`, `skill`, `type`, `fn`, or `async fn`"))
+                Err(
+                    ParseError::unexpected_token(token, "top-level scope", self.source, span)
+                        .with_help("expected `agent`, `skill`, `type`, `fn`, or `async fn`"),
+                )
             }
             None => Err(ParseError::unexpected_eof(self.source)),
         }
@@ -333,7 +354,12 @@ impl<'src> Parser<'src> {
                 }
                 None => {
                     let span = self.current_span();
-                    return Err(ParseError::missing_delimiter("}", Some(brace_span), self.source, span));
+                    return Err(ParseError::missing_delimiter(
+                        "}",
+                        Some(brace_span),
+                        self.source,
+                        span,
+                    ));
                 }
             }
         }
@@ -414,7 +440,11 @@ impl<'src> Parser<'src> {
             TypeDefKind::Alias(ty)
         };
 
-        let end = self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end);
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start_span.end);
 
         Ok(TypeDef {
             name,
@@ -453,7 +483,13 @@ impl<'src> Parser<'src> {
             params,
             return_type,
             body,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -465,7 +501,13 @@ impl<'src> Parser<'src> {
         let mut temperature = None;
 
         // Simple key-value parsing for model config
-        while !self.is_at_end() && !self.check(&Token::State) && !self.check(&Token::Protocols) && !self.check(&Token::Tool) && !self.check(&Token::On) && !self.check(&Token::RBrace) {
+        while !self.is_at_end()
+            && !self.check(&Token::State)
+            && !self.check(&Token::Protocols)
+            && !self.check(&Token::Tool)
+            && !self.check(&Token::On)
+            && !self.check(&Token::RBrace)
+        {
             if let Some(Token::Identifier(key)) = self.peek_token().cloned() {
                 self.advance();
                 self.expect(Token::Colon)?;
@@ -489,7 +531,13 @@ impl<'src> Parser<'src> {
             name,
             context_window,
             temperature,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -520,18 +568,25 @@ impl<'src> Parser<'src> {
                 }
                 Ok(StringLit { value, span })
             }
-            Some(token) => {
-                Err(ParseError::expected("string or identifier", &token, self.source, span))
-            }
+            Some(token) => Err(ParseError::expected(
+                "string or identifier",
+                &token,
+                self.source,
+                span,
+            )),
             None => Err(ParseError::unexpected_eof(self.source)),
         }
     }
 
     fn is_identifier_like(&self, token: &Token) -> bool {
-        matches!(token,
-            Token::Identifier(_) |
-            Token::NumberLiteral(_) |
-            Token::StringType | Token::NumberType | Token::BooleanType | Token::TimestampType
+        matches!(
+            token,
+            Token::Identifier(_)
+                | Token::NumberLiteral(_)
+                | Token::StringType
+                | Token::NumberType
+                | Token::BooleanType
+                | Token::TimestampType
         )
     }
 
@@ -678,7 +733,13 @@ impl<'src> Parser<'src> {
         Ok(EventHandler {
             event,
             body,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -730,7 +791,13 @@ impl<'src> Parser<'src> {
             name,
             ty,
             value,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -752,7 +819,13 @@ impl<'src> Parser<'src> {
             name,
             ty,
             value,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -776,7 +849,13 @@ impl<'src> Parser<'src> {
             condition,
             then_block,
             else_block,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -791,7 +870,13 @@ impl<'src> Parser<'src> {
             binding,
             iterable,
             body,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -803,7 +888,13 @@ impl<'src> Parser<'src> {
         Ok(WhileStmt {
             condition,
             body,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -818,7 +909,13 @@ impl<'src> Parser<'src> {
 
         Ok(ReturnStmt {
             value,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -832,7 +929,13 @@ impl<'src> Parser<'src> {
         Ok(EmitStmt {
             event,
             value,
-            span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
+            span: Span::new(
+                start_span.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end),
+            ),
         })
     }
 
@@ -842,7 +945,13 @@ impl<'src> Parser<'src> {
 
         Ok(ExprStmt {
             expr,
-            span: Span::new(start.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start.end)),
+            span: Span::new(
+                start.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start.end),
+            ),
         })
     }
 
@@ -856,10 +965,7 @@ impl<'src> Parser<'src> {
         if self.check(&Token::Eq) {
             self.advance();
             let value = self.parse_assignment()?;
-            let span = Span::new(
-                self.expr_span(&expr).start,
-                self.expr_span(&value).end,
-            );
+            let span = Span::new(self.expr_span(&expr).start, self.expr_span(&value).end);
             return Ok(Expr::Assign(AssignExpr {
                 target: Box::new(expr),
                 value: Box::new(value),
@@ -1089,12 +1195,18 @@ impl<'src> Parser<'src> {
             Some(Token::True) => {
                 let span = self.current_span();
                 self.advance();
-                Ok(Expr::Literal(Literal::Boolean(BoolLit { value: true, span })))
+                Ok(Expr::Literal(Literal::Boolean(BoolLit {
+                    value: true,
+                    span,
+                })))
             }
             Some(Token::False) => {
                 let span = self.current_span();
                 self.advance();
-                Ok(Expr::Literal(Literal::Boolean(BoolLit { value: false, span })))
+                Ok(Expr::Literal(Literal::Boolean(BoolLit {
+                    value: false,
+                    span,
+                })))
             }
             Some(Token::Null) => {
                 let span = self.current_span();
@@ -1212,7 +1324,10 @@ impl<'src> Parser<'src> {
 
     fn parse_primary_type(&mut self) -> Result<TypeExpr, ParseError> {
         match self.peek_token().cloned() {
-            Some(Token::StringType) | Some(Token::NumberType) | Some(Token::BooleanType) | Some(Token::TimestampType) => {
+            Some(Token::StringType)
+            | Some(Token::NumberType)
+            | Some(Token::BooleanType)
+            | Some(Token::TimestampType) => {
                 let span = self.current_span();
                 let name = match self.peek_token() {
                     Some(Token::StringType) => "string",
@@ -1362,7 +1477,13 @@ impl<'src> Parser<'src> {
             name,
             ty,
             default,
-            span: Span::new(start.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start.end)),
+            span: Span::new(
+                start.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start.end),
+            ),
         })
     }
 
@@ -1382,7 +1503,13 @@ impl<'src> Parser<'src> {
             name,
             ty,
             optional,
-            span: Span::new(start.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start.end)),
+            span: Span::new(
+                start.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start.end),
+            ),
         })
     }
 
@@ -1435,9 +1562,12 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(Identifier::new("state", span))
             }
-            Some(token) => {
-                Err(ParseError::expected("identifier", &token, self.source, span))
-            }
+            Some(token) => Err(ParseError::expected(
+                "identifier",
+                &token,
+                self.source,
+                span,
+            )),
             None => Err(ParseError::unexpected_eof(self.source)),
         }
     }
@@ -1451,7 +1581,12 @@ impl<'src> Parser<'src> {
             }
             Some(token) => {
                 let span = self.current_span();
-                Err(ParseError::expected("string literal", &token, self.source, span))
+                Err(ParseError::expected(
+                    "string literal",
+                    &token,
+                    self.source,
+                    span,
+                ))
             }
             None => Err(ParseError::unexpected_eof(self.source)),
         }
@@ -1466,7 +1601,12 @@ impl<'src> Parser<'src> {
             }
             Some(token) => {
                 let span = self.current_span();
-                Err(ParseError::expected("number literal", &token, self.source, span))
+                Err(ParseError::expected(
+                    "number literal",
+                    &token,
+                    self.source,
+                    span,
+                ))
             }
             None => Err(ParseError::unexpected_eof(self.source)),
         }
@@ -1541,7 +1681,11 @@ impl<'src> Parser<'src> {
     /// Parse a standalone expression from a string.
     pub fn parse_expr_string(source: &str) -> Result<Expr, ParseError> {
         let mut parser = Parser::new(source).map_err(|e| {
-            ParseError::new(format!("lexer error: {}", e), source, Span::new(0, source.len()))
+            ParseError::new(
+                format!("lexer error: {}", e),
+                source,
+                Span::new(0, source.len()),
+            )
         })?;
         parser.parse_expr()
     }
@@ -1553,11 +1697,16 @@ impl<'src> Parser<'src> {
     }
 
     fn current_span(&self) -> Span {
-        self.tokens.get(self.pos).map(|t| t.span).unwrap_or_default()
+        self.tokens
+            .get(self.pos)
+            .map(|t| t.span)
+            .unwrap_or_default()
     }
 
     fn check(&self, token: &Token) -> bool {
-        self.peek_token().map(|t| std::mem::discriminant(t) == std::mem::discriminant(token)).unwrap_or(false)
+        self.peek_token()
+            .map(|t| std::mem::discriminant(t) == std::mem::discriminant(token))
+            .unwrap_or(false)
     }
 
     fn advance(&mut self) -> Option<&SpannedToken> {
@@ -1575,7 +1724,12 @@ impl<'src> Parser<'src> {
         } else {
             let span = self.current_span();
             match self.peek_token() {
-                Some(found) => Err(ParseError::expected(&format!("{}", expected), found, self.source, span)),
+                Some(found) => Err(ParseError::expected(
+                    &format!("{}", expected),
+                    found,
+                    self.source,
+                    span,
+                )),
                 None => Err(ParseError::unexpected_eof(self.source)),
             }
         }

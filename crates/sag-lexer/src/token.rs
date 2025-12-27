@@ -384,7 +384,10 @@ mod tests {
     #[test]
     fn test_string_literal() {
         let mut lexer = Token::lexer(r#""hello world""#);
-        assert_eq!(lexer.next(), Some(Ok(Token::StringLiteral("hello world".to_string()))));
+        assert_eq!(
+            lexer.next(),
+            Some(Ok(Token::StringLiteral("hello world".to_string())))
+        );
     }
 
     #[test]
@@ -396,13 +399,19 @@ mod tests {
     #[test]
     fn test_identifier() {
         let mut lexer = Token::lexer("myAgent");
-        assert_eq!(lexer.next(), Some(Ok(Token::Identifier("myAgent".to_string()))));
+        assert_eq!(
+            lexer.next(),
+            Some(Ok(Token::Identifier("myAgent".to_string())))
+        );
     }
 
     #[test]
     fn test_template_literal() {
         let mut lexer = Token::lexer("`Hello ${name}`");
-        assert_eq!(lexer.next(), Some(Ok(Token::TemplateLiteral("Hello ${name}".to_string()))));
+        assert_eq!(
+            lexer.next(),
+            Some(Ok(Token::TemplateLiteral("Hello ${name}".to_string())))
+        );
     }
 
     #[test]

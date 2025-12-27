@@ -11,7 +11,7 @@ use tracing::info;
 
 mod semantic_tokens;
 
-use semantic_tokens::{LEGEND, SemanticTokensBuilder};
+use semantic_tokens::{SemanticTokensBuilder, LEGEND};
 
 /// Document state stored for each open file.
 struct Document {
@@ -124,8 +124,16 @@ impl SagLanguageServer {
             ("async", "Async function", CompletionItemKind::KEYWORD),
             ("model", "Model configuration", CompletionItemKind::KEYWORD),
             ("state", "Agent state", CompletionItemKind::KEYWORD),
-            ("protocols", "Protocol bindings", CompletionItemKind::KEYWORD),
-            ("description", "Description field", CompletionItemKind::PROPERTY),
+            (
+                "protocols",
+                "Protocol bindings",
+                CompletionItemKind::KEYWORD,
+            ),
+            (
+                "description",
+                "Description field",
+                CompletionItemKind::PROPERTY,
+            ),
             ("version", "Version field", CompletionItemKind::PROPERTY),
         ];
 

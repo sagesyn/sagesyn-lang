@@ -126,11 +126,7 @@ impl PythonGenerator {
                 let args: Vec<_> = c.args.iter().map(|a| self.generate_expr(a)).collect();
                 format!("{}({})", self.generate_expr(&c.callee), args.join(", "))
             }
-            Expr::Member(m) => format!(
-                "{}.{}",
-                self.generate_expr(&m.object),
-                m.property.name
-            ),
+            Expr::Member(m) => format!("{}.{}", self.generate_expr(&m.object), m.property.name),
             Expr::Index(i) => format!(
                 "{}[{}]",
                 self.generate_expr(&i.object),
@@ -161,7 +157,12 @@ impl PythonGenerator {
                             while let Some(start) = result.find("${") {
                                 if let Some(end) = result[start..].find('}') {
                                     let var_name = &result[start + 2..start + end];
-                                    result = format!("{}{{{}}}{}", &result[..start], var_name, &result[start + end + 1..]);
+                                    result = format!(
+                                        "{}{{{}}}{}",
+                                        &result[..start],
+                                        var_name,
+                                        &result[start + end + 1..]
+                                    );
                                 } else {
                                     break;
                                 }
@@ -187,11 +188,10 @@ impl PythonGenerator {
         let indent = self.indent_str();
         match stmt {
             Stmt::Let(l) => {
-                let ty_annotation = l
-                    .ty
-                    .as_ref()
-                    .map(|t| format!(": {}", self.generate_type(t)))
-                    .unwrap_or_default();
+                let ty_annotation =
+                    l.ty.as_ref()
+                        .map(|t| format!(": {}", self.generate_type(t)))
+                        .unwrap_or_default();
                 output.push_str(&format!(
                     "{}{}{} = {}\n",
                     indent,
@@ -201,11 +201,10 @@ impl PythonGenerator {
                 ));
             }
             Stmt::Var(v) => {
-                let ty_annotation = v
-                    .ty
-                    .as_ref()
-                    .map(|t| format!(": {}", self.generate_type(t)))
-                    .unwrap_or_default();
+                let ty_annotation =
+                    v.ty.as_ref()
+                        .map(|t| format!(": {}", self.generate_type(t)))
+                        .unwrap_or_default();
                 output.push_str(&format!(
                     "{}{}{} = {}\n",
                     indent,
@@ -317,7 +316,11 @@ impl PythonGenerator {
 
         // Add docstring inside function
         if let Some(desc) = &tool.description {
-            output.push_str(&format!("{}\"\"\"{}.\"\"\"\n", self.indent_str(), desc.value));
+            output.push_str(&format!(
+                "{}\"\"\"{}.\"\"\"\n",
+                self.indent_str(),
+                desc.value
+            ));
         }
 
         if let Some(body) = &tool.body {
@@ -327,8 +330,14 @@ impl PythonGenerator {
             output.push_str(&format!(
                 "{}# MCP tool: server={}, tool={}\n",
                 self.indent_str(),
-                tool.mcp_server.as_ref().map(|s| s.name.as_str()).unwrap_or(""),
-                tool.mcp_tool.as_ref().map(|s| s.name.as_str()).unwrap_or("")
+                tool.mcp_server
+                    .as_ref()
+                    .map(|s| s.name.as_str())
+                    .unwrap_or(""),
+                tool.mcp_tool
+                    .as_ref()
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("")
             ));
             output.push_str(&format!("{}pass\n", self.indent_str()));
         } else {
@@ -374,7 +383,11 @@ impl PythonGenerator {
                 state_class.push_str(&format!("    {}{}\n", field.name.name, default));
             }
             state_class.push('\n');
-            state_init = format!("\n# Initialize state\n{}_state = {}()\n", name.to_lowercase(), state_name);
+            state_init = format!(
+                "\n# Initialize state\n{}_state = {}()\n",
+                name.to_lowercase(),
+                state_name
+            );
         }
 
         // Generate tools as functions
@@ -387,7 +400,8 @@ impl PythonGenerator {
         }
 
         // Build imports
-        let mut imports = String::from("from google.adk.agents import Agent\nfrom typing import Callable, Any");
+        let mut imports =
+            String::from("from google.adk.agents import Agent\nfrom typing import Callable, Any");
         if !state_class.is_empty() {
             imports.push_str("\nfrom dataclasses import dataclass, field");
         }

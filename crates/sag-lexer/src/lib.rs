@@ -29,8 +29,10 @@ use thiserror::Error;
 #[diagnostic(code(sag::lexer::invalid_token))]
 pub struct LexerError {
     #[source_code]
+    #[allow(dead_code)]
     src: String,
     #[label("unexpected character")]
+    #[allow(dead_code)]
     span: SourceSpan,
 }
 
@@ -131,7 +133,10 @@ mod tests {
         assert_eq!(tokens[0].token, Token::Agent);
         assert_eq!(tokens[1].token, Token::Identifier("Test".to_string()));
         assert_eq!(tokens[2].token, Token::LBrace);
-        assert_eq!(tokens[3].token, Token::Identifier("description".to_string()));
+        assert_eq!(
+            tokens[3].token,
+            Token::Identifier("description".to_string())
+        );
         assert_eq!(tokens[4].token, Token::Colon);
         assert_eq!(
             tokens[5].token,

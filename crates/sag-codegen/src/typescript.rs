@@ -63,7 +63,11 @@ impl TypeScriptGenerator {
                     .enumerate()
                     .map(|(i, t)| format!("arg{}: {}", i, self.generate_type(t)))
                     .collect();
-                format!("({}) => {}", params.join(", "), self.generate_type(&func.return_type))
+                format!(
+                    "({}) => {}",
+                    params.join(", "),
+                    self.generate_type(&func.return_type)
+                )
             }
         }
     }
@@ -110,7 +114,11 @@ impl TypeScriptGenerator {
                 format!("{}.{}", self.generate_expr(&mem.object), mem.property.name)
             }
             Expr::Index(idx) => {
-                format!("{}[{}]", self.generate_expr(&idx.object), self.generate_expr(&idx.index))
+                format!(
+                    "{}[{}]",
+                    self.generate_expr(&idx.object),
+                    self.generate_expr(&idx.index)
+                )
             }
             Expr::Array(arr) => {
                 let elements: Vec<_> = arr.elements.iter().map(|e| self.generate_expr(e)).collect();
@@ -152,7 +160,11 @@ impl TypeScriptGenerator {
                 format!("`{}`", parts.join(""))
             }
             Expr::Assign(assign) => {
-                format!("{} = {}", self.generate_expr(&assign.target), self.generate_expr(&assign.value))
+                format!(
+                    "{} = {}",
+                    self.generate_expr(&assign.target),
+                    self.generate_expr(&assign.value)
+                )
             }
         }
     }
@@ -169,18 +181,40 @@ impl TypeScriptGenerator {
     fn generate_stmt(&mut self, stmt: &Stmt) -> String {
         match stmt {
             Stmt::Let(l) => {
-                let ty = l.ty.as_ref().map(|t| format!(": {}", self.generate_type(t))).unwrap_or_default();
-                format!("{}const {}{} = {};", self.indent(), l.name.name, ty, self.generate_expr(&l.value))
+                let ty =
+                    l.ty.as_ref()
+                        .map(|t| format!(": {}", self.generate_type(t)))
+                        .unwrap_or_default();
+                format!(
+                    "{}const {}{} = {};",
+                    self.indent(),
+                    l.name.name,
+                    ty,
+                    self.generate_expr(&l.value)
+                )
             }
             Stmt::Var(v) => {
-                let ty = v.ty.as_ref().map(|t| format!(": {}", self.generate_type(t))).unwrap_or_default();
-                format!("{}let {}{} = {};", self.indent(), v.name.name, ty, self.generate_expr(&v.value))
+                let ty =
+                    v.ty.as_ref()
+                        .map(|t| format!(": {}", self.generate_type(t)))
+                        .unwrap_or_default();
+                format!(
+                    "{}let {}{} = {};",
+                    self.indent(),
+                    v.name.name,
+                    ty,
+                    self.generate_expr(&v.value)
+                )
             }
             Stmt::Expr(e) => {
                 format!("{}{};", self.indent(), self.generate_expr(&e.expr))
             }
             Stmt::If(i) => {
-                let mut result = format!("{}if ({}) ", self.indent(), self.generate_expr(&i.condition));
+                let mut result = format!(
+                    "{}if ({}) ",
+                    self.indent(),
+                    self.generate_expr(&i.condition)
+                );
                 result.push_str(&self.generate_block(&i.then_block));
                 if let Some(else_clause) = &i.else_block {
                     match else_clause.as_ref() {
@@ -213,14 +247,17 @@ impl TypeScriptGenerator {
                     self.generate_block(&w.body)
                 )
             }
-            Stmt::Return(r) => {
-                match &r.value {
-                    Some(v) => format!("{}return {};", self.indent(), self.generate_expr(v)),
-                    None => format!("{}return;", self.indent()),
-                }
-            }
+            Stmt::Return(r) => match &r.value {
+                Some(v) => format!("{}return {};", self.indent(), self.generate_expr(v)),
+                None => format!("{}return;", self.indent()),
+            },
             Stmt::Emit(e) => {
-                format!("{}this.emit(\"{}\", {});", self.indent(), e.event.name, self.generate_expr(&e.value))
+                format!(
+                    "{}this.emit(\"{}\", {});",
+                    self.indent(),
+                    e.event.name,
+                    self.generate_expr(&e.value)
+                )
             }
             Stmt::Block(b) => self.generate_block(b),
         }
@@ -241,7 +278,12 @@ impl TypeScriptGenerator {
 
     fn generate_field(&self, field: &Field) -> String {
         let optional = if field.optional { "?" } else { "" };
-        format!("{}{}: {};", field.name.name, optional, self.generate_type(&field.ty))
+        format!(
+            "{}{}: {};",
+            field.name.name,
+            optional,
+            self.generate_type(&field.ty)
+        )
     }
 
     fn generate_typedef(&self, typedef: &TypeDef) -> String {
@@ -264,7 +306,12 @@ impl TypeScriptGenerator {
                 result
             }
             TypeDefKind::Alias(ty) => {
-                format!("export type {}{} = {};\n", typedef.name.name, generics, self.generate_type(ty))
+                format!(
+                    "export type {}{} = {};\n",
+                    typedef.name.name,
+                    generics,
+                    self.generate_type(ty)
+                )
             }
         }
     }
@@ -312,17 +359,29 @@ impl TypeScriptGenerator {
 
         // Description
         if let Some(desc) = &agent.description {
-            result.push_str(&format!("{}static readonly description = \"{}\";\n", self.indent(), desc.value));
+            result.push_str(&format!(
+                "{}static readonly description = \"{}\";\n",
+                self.indent(),
+                desc.value
+            ));
         }
 
         // Version
         if let Some(ver) = &agent.version {
-            result.push_str(&format!("{}static readonly version = \"{}\";\n", self.indent(), ver.value));
+            result.push_str(&format!(
+                "{}static readonly version = \"{}\";\n",
+                self.indent(),
+                ver.value
+            ));
         }
 
         // State
         if agent.state.is_some() {
-            result.push_str(&format!("\n{}private state: {}State;\n", self.indent(), agent.name.name));
+            result.push_str(&format!(
+                "\n{}private state: {}State;\n",
+                self.indent(),
+                agent.name.name
+            ));
         }
 
         // Constructor
@@ -332,8 +391,17 @@ impl TypeScriptGenerator {
             result.push_str(&format!("{}this.state = {{\n", self.indent()));
             self.indent += 1;
             for field in &state.fields {
-                let default = if field.optional { "null" } else { "undefined as any" };
-                result.push_str(&format!("{}{}: {},\n", self.indent(), field.name.name, default));
+                let default = if field.optional {
+                    "null"
+                } else {
+                    "undefined as any"
+                };
+                result.push_str(&format!(
+                    "{}{}: {},\n",
+                    self.indent(),
+                    field.name.name,
+                    default
+                ));
             }
             self.indent -= 1;
             result.push_str(&format!("{}}};\n", self.indent()));
@@ -391,7 +459,11 @@ impl TypeScriptGenerator {
                     self.indent(),
                     server.name,
                     mcp_tool.name,
-                    params.iter().map(|p| p.split(':').next().unwrap().trim()).collect::<Vec<_>>().join(", ")
+                    params
+                        .iter()
+                        .map(|p| p.split(':').next().unwrap().trim())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             self.indent -= 1;
@@ -404,7 +476,11 @@ impl TypeScriptGenerator {
     }
 
     fn generate_handler(&mut self, handler: &EventHandler) -> String {
-        let mut result = format!("{}on{}(message: any) ", self.indent(), capitalize(&handler.event.name));
+        let mut result = format!(
+            "{}on{}(message: any) ",
+            self.indent(),
+            capitalize(&handler.event.name)
+        );
         result.push_str(&self.generate_block(&handler.body));
         result.push('\n');
         result

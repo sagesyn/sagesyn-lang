@@ -3,7 +3,7 @@
 //! This crate provides static type checking for `.sag` programs.
 
 use miette::{Diagnostic, LabeledSpan, SourceSpan};
-use sag_parser::{Program, TypeExpr, Span};
+use sag_parser::{Program, Span, TypeExpr};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -77,7 +77,9 @@ impl Diagnostic for TypeError {
     }
 
     fn help<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
-        self.help.as_ref().map(|h| Box::new(h.as_str()) as Box<dyn std::fmt::Display>)
+        self.help
+            .as_ref()
+            .map(|h| Box::new(h.as_str()) as Box<dyn std::fmt::Display>)
     }
 }
 
@@ -95,7 +97,12 @@ impl TypeError {
     }
 
     /// Create an error with a specific kind.
-    pub fn with_kind(kind: TypeErrorKind, message: impl Into<String>, src: &str, span: Span) -> Self {
+    pub fn with_kind(
+        kind: TypeErrorKind,
+        message: impl Into<String>,
+        src: &str,
+        span: Span,
+    ) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -138,7 +145,8 @@ impl TypeError {
             format!("undefined type `{}`", name),
             src,
             span,
-        ).with_help("check that the type is defined or imported")
+        )
+        .with_help("check that the type is defined or imported")
     }
 
     /// Create an undefined variable error.
@@ -164,14 +172,26 @@ impl TypeError {
             format!("type `{}` is not callable", ty),
             src,
             span,
-        ).with_help("only functions and tools can be called")
+        )
+        .with_help("only functions and tools can be called")
     }
 
     /// Create an argument count error.
-    pub fn argument_count(expected: usize, actual: usize, src: &str, span: Span, fn_span: Option<Span>) -> Self {
+    pub fn argument_count(
+        expected: usize,
+        actual: usize,
+        src: &str,
+        span: Span,
+        fn_span: Option<Span>,
+    ) -> Self {
         let mut err = Self::with_kind(
             TypeErrorKind::ArgumentCount,
-            format!("expected {} argument{}, found {}", expected, if expected == 1 { "" } else { "s" }, actual),
+            format!(
+                "expected {} argument{}, found {}",
+                expected,
+                if expected == 1 { "" } else { "s" },
+                actual
+            ),
             src,
             span,
         );
@@ -322,16 +342,16 @@ impl TypeEnv {
 
     /// Look up a variable binding.
     pub fn lookup(&self, name: &str) -> Option<&Type> {
-        self.bindings.get(name).or_else(|| {
-            self.parent.as_ref().and_then(|p| p.lookup(name))
-        })
+        self.bindings
+            .get(name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.lookup(name)))
     }
 
     /// Look up a type definition.
     pub fn lookup_type(&self, name: &str) -> Option<&Type> {
-        self.types.get(name).or_else(|| {
-            self.parent.as_ref().and_then(|p| p.lookup_type(name))
-        })
+        self.types
+            .get(name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.lookup_type(name)))
     }
 }
 
@@ -380,39 +400,33 @@ impl<'src> TypeChecker<'src> {
     /// Resolve a type expression to a Type.
     pub fn resolve_type(&self, type_expr: &TypeExpr) -> Type {
         match type_expr {
-            TypeExpr::Named(named) => {
-                match named.name.name.as_str() {
-                    "string" => Type::String,
-                    "number" => Type::Number,
-                    "boolean" => Type::Boolean,
-                    "timestamp" => Type::Timestamp,
-                    name => self.env.lookup_type(name).cloned().unwrap_or(Type::Named(name.to_string())),
-                }
-            }
-            TypeExpr::Array(arr) => {
-                Type::Array(Box::new(self.resolve_type(&arr.element)))
-            }
-            TypeExpr::Record(rec) => {
-                Type::Record(
-                    Box::new(self.resolve_type(&rec.key)),
-                    Box::new(self.resolve_type(&rec.value)),
-                )
-            }
+            TypeExpr::Named(named) => match named.name.name.as_str() {
+                "string" => Type::String,
+                "number" => Type::Number,
+                "boolean" => Type::Boolean,
+                "timestamp" => Type::Timestamp,
+                name => self
+                    .env
+                    .lookup_type(name)
+                    .cloned()
+                    .unwrap_or(Type::Named(name.to_string())),
+            },
+            TypeExpr::Array(arr) => Type::Array(Box::new(self.resolve_type(&arr.element))),
+            TypeExpr::Record(rec) => Type::Record(
+                Box::new(self.resolve_type(&rec.key)),
+                Box::new(self.resolve_type(&rec.value)),
+            ),
             TypeExpr::Tuple(tup) => {
                 Type::Tuple(tup.elements.iter().map(|t| self.resolve_type(t)).collect())
             }
-            TypeExpr::Optional(inner) => {
-                Type::Optional(Box::new(self.resolve_type(inner)))
-            }
+            TypeExpr::Optional(inner) => Type::Optional(Box::new(self.resolve_type(inner))),
             TypeExpr::Union(types) => {
                 Type::Union(types.iter().map(|t| self.resolve_type(t)).collect())
             }
-            TypeExpr::Function(func) => {
-                Type::Function {
-                    params: func.params.iter().map(|t| self.resolve_type(t)).collect(),
-                    return_type: Box::new(self.resolve_type(&func.return_type)),
-                }
-            }
+            TypeExpr::Function(func) => Type::Function {
+                params: func.params.iter().map(|t| self.resolve_type(t)).collect(),
+                return_type: Box::new(self.resolve_type(&func.return_type)),
+            },
         }
     }
 

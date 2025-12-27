@@ -73,7 +73,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Compile { file, target, output } => {
+        Commands::Compile {
+            file,
+            target,
+            output,
+        } => {
             compile(&file, &target, output.as_ref())?;
         }
         Commands::Check { file } => {
@@ -108,7 +112,9 @@ fn compile(file: &PathBuf, target_str: &str, output: Option<&PathBuf>) -> Result
     }
 
     // Parse target
-    let target: Target = target_str.parse().map_err(|e: String| miette::miette!("{}", e))?;
+    let target: Target = target_str
+        .parse()
+        .map_err(|e: String| miette::miette!("{}", e))?;
 
     // Generate code
     let code = generate(&program, target).map_err(|e| miette::miette!("{}", e))?;

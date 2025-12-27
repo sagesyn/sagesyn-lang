@@ -73,8 +73,6 @@ pub fn generate(program: &Program, target: Target) -> Result<String, CodegenErro
             let generator = python::PythonGenerator::new();
             generator.generate(program)
         }
-        Target::Go => {
-            Err(CodegenError::new("Go target not yet implemented"))
-        }
+        Target::Go => Err(CodegenError::new("Go target not yet implemented")),
     }
 }
