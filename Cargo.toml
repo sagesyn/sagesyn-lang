@@ -6,6 +6,7 @@ members = [
     "crates/sag-types",
     "crates/sag-codegen",
     "crates/sag-cli",
+    "crates/sag-lsp",
 ]
 
 [workspace.package]

@@ -97,7 +97,7 @@ fn compile(file: &PathBuf, target_str: &str, output: Option<&PathBuf>) -> Result
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let program = SagParser::parse(&source).map_err(|e| miette::Report::new(e))?;
 
     // Type check
     if let Err(errors) = TypeChecker::check(&source, &program) {
@@ -137,7 +137,7 @@ fn check(file: &PathBuf) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let program = SagParser::parse(&source).map_err(|e| miette::Report::new(e))?;
 
     // Type check
     if let Err(errors) = TypeChecker::check(&source, &program) {
@@ -155,7 +155,7 @@ fn format_file(file: &PathBuf, _write: bool) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let _program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let _program = SagParser::parse(&source).map_err(|e| miette::Report::new(e))?;
 
     // TODO: Implement formatter
     println!("Formatting not yet implemented");
@@ -167,7 +167,7 @@ fn format_file(file: &PathBuf, _write: bool) -> Result<()> {
 fn parse(file: &PathBuf) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
-    let program = SagParser::parse(&source).map_err(|e| miette::miette!("{}", e))?;
+    let program = SagParser::parse(&source).map_err(|e| miette::Report::new(e))?;
 
     println!("{:#?}", program);
 

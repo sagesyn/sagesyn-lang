@@ -1,0 +1,34 @@
+// Google ADK Agent Example
+// Compiles to Python code compatible with Google Agent Development Kit
+
+agent WeatherAgent {
+  description: "An agent that provides weather information"
+  version: "1.0.0"
+
+  model {
+    provider: google
+    name: gemini-2.0-flash
+  }
+
+  tool get_weather(city: string) -> string {
+    description: "Get current weather for a city"
+    return `The weather in ${city} is sunny and 72°F`
+  }
+
+  tool get_forecast(city: string, days: number) -> string {
+    description: "Get weather forecast for upcoming days"
+    return `${days}-day forecast for ${city}: Mostly sunny`
+  }
+
+  on user_message {
+    let weather = get_weather("San Francisco")
+    emit response(weather)
+  }
+}
+
+type WeatherData {
+  temperature: number
+  humidity: number
+  description: string
+  city: string
+}

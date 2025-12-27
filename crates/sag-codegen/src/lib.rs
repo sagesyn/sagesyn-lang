@@ -2,6 +2,7 @@
 //!
 //! This crate generates code in various target languages from an AST.
 
+pub mod python;
 pub mod typescript;
 
 use miette::Diagnostic;
@@ -69,7 +70,8 @@ pub fn generate(program: &Program, target: Target) -> Result<String, CodegenErro
             generator.generate(program)
         }
         Target::Python => {
-            Err(CodegenError::new("Python target not yet implemented"))
+            let generator = python::PythonGenerator::new();
+            generator.generate(program)
         }
         Target::Go => {
             Err(CodegenError::new("Go target not yet implemented"))

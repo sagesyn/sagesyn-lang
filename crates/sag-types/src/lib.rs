@@ -2,30 +2,226 @@
 //!
 //! This crate provides static type checking for `.sag` programs.
 
-use miette::{Diagnostic, SourceSpan};
+use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use sag_parser::{Program, TypeExpr, Span};
 use std::collections::HashMap;
 use thiserror::Error;
 
-/// Type checking error.
-#[derive(Error, Diagnostic, Debug, Clone)]
+/// Error code category for type errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeErrorKind {
+    /// Type mismatch between expected and actual
+    TypeMismatch,
+    /// Undefined type name
+    UndefinedType,
+    /// Undefined variable
+    UndefinedVariable,
+    /// Cannot call a non-function
+    NotCallable,
+    /// Wrong number of arguments
+    ArgumentCount,
+    /// Property does not exist on type
+    NoSuchProperty,
+    /// Cannot index into this type
+    NotIndexable,
+    /// Invalid operation for types
+    InvalidOperation,
+    /// Duplicate definition
+    DuplicateDefinition,
+}
+
+impl TypeErrorKind {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::TypeMismatch => "sag::types::type_mismatch",
+            Self::UndefinedType => "sag::types::undefined_type",
+            Self::UndefinedVariable => "sag::types::undefined_variable",
+            Self::NotCallable => "sag::types::not_callable",
+            Self::ArgumentCount => "sag::types::argument_count",
+            Self::NoSuchProperty => "sag::types::no_such_property",
+            Self::NotIndexable => "sag::types::not_indexable",
+            Self::InvalidOperation => "sag::types::invalid_operation",
+            Self::DuplicateDefinition => "sag::types::duplicate_definition",
+        }
+    }
+}
+
+/// Type checking error with rich diagnostic information.
+#[derive(Error, Debug, Clone)]
 #[error("{message}")]
-#[diagnostic(code(sag::types::error))]
 pub struct TypeError {
+    kind: TypeErrorKind,
     message: String,
-    #[source_code]
     src: String,
-    #[label("{message}")]
     span: SourceSpan,
+    help: Option<String>,
+    labels: Vec<LabeledSpan>,
+}
+
+impl Diagnostic for TypeError {
+    fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        Some(Box::new(self.kind.code()))
+    }
+
+    fn source_code(&self) -> Option<&dyn miette::SourceCode> {
+        Some(&self.src)
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        let mut all_labels = vec![LabeledSpan::new_with_span(
+            Some(self.message.clone()),
+            self.span,
+        )];
+        all_labels.extend(self.labels.iter().cloned());
+        Some(Box::new(all_labels.into_iter()))
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        self.help.as_ref().map(|h| Box::new(h.as_str()) as Box<dyn std::fmt::Display>)
+    }
 }
 
 impl TypeError {
+    /// Create a new type error.
     pub fn new(message: impl Into<String>, src: &str, span: Span) -> Self {
         Self {
+            kind: TypeErrorKind::TypeMismatch,
             message: message.into(),
             src: src.to_string(),
             span: (span.start, span.len()).into(),
+            help: None,
+            labels: Vec::new(),
         }
+    }
+
+    /// Create an error with a specific kind.
+    pub fn with_kind(kind: TypeErrorKind, message: impl Into<String>, src: &str, span: Span) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            src: src.to_string(),
+            span: (span.start, span.len()).into(),
+            help: None,
+            labels: Vec::new(),
+        }
+    }
+
+    /// Add help text to the error.
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Add a secondary label at another location.
+    pub fn with_label(mut self, message: impl Into<String>, span: Span) -> Self {
+        self.labels.push(LabeledSpan::new_with_span(
+            Some(message.into()),
+            (span.start, span.len()),
+        ));
+        self
+    }
+
+    /// Create a type mismatch error.
+    pub fn type_mismatch(expected: &str, actual: &str, src: &str, span: Span) -> Self {
+        Self::with_kind(
+            TypeErrorKind::TypeMismatch,
+            format!("expected `{}`, found `{}`", expected, actual),
+            src,
+            span,
+        )
+    }
+
+    /// Create an undefined type error.
+    pub fn undefined_type(name: &str, src: &str, span: Span) -> Self {
+        Self::with_kind(
+            TypeErrorKind::UndefinedType,
+            format!("undefined type `{}`", name),
+            src,
+            span,
+        ).with_help("check that the type is defined or imported")
+    }
+
+    /// Create an undefined variable error.
+    pub fn undefined_variable(name: &str, src: &str, span: Span, similar: Option<&str>) -> Self {
+        let mut err = Self::with_kind(
+            TypeErrorKind::UndefinedVariable,
+            format!("undefined variable `{}`", name),
+            src,
+            span,
+        );
+
+        if let Some(similar_name) = similar {
+            err = err.with_help(format!("did you mean `{}`?", similar_name));
+        }
+
+        err
+    }
+
+    /// Create a not callable error.
+    pub fn not_callable(ty: &str, src: &str, span: Span) -> Self {
+        Self::with_kind(
+            TypeErrorKind::NotCallable,
+            format!("type `{}` is not callable", ty),
+            src,
+            span,
+        ).with_help("only functions and tools can be called")
+    }
+
+    /// Create an argument count error.
+    pub fn argument_count(expected: usize, actual: usize, src: &str, span: Span, fn_span: Option<Span>) -> Self {
+        let mut err = Self::with_kind(
+            TypeErrorKind::ArgumentCount,
+            format!("expected {} argument{}, found {}", expected, if expected == 1 { "" } else { "s" }, actual),
+            src,
+            span,
+        );
+
+        if let Some(def_span) = fn_span {
+            err = err.with_label("function defined here", def_span);
+        }
+
+        err
+    }
+
+    /// Create a no such property error.
+    pub fn no_such_property(ty: &str, property: &str, src: &str, span: Span) -> Self {
+        Self::with_kind(
+            TypeErrorKind::NoSuchProperty,
+            format!("type `{}` has no property `{}`", ty, property),
+            src,
+            span,
+        )
+    }
+
+    /// Create a duplicate definition error.
+    pub fn duplicate_definition(name: &str, src: &str, span: Span, original: Option<Span>) -> Self {
+        let mut err = Self::with_kind(
+            TypeErrorKind::DuplicateDefinition,
+            format!("`{}` is already defined", name),
+            src,
+            span,
+        );
+
+        if let Some(orig_span) = original {
+            err = err.with_label("originally defined here", orig_span);
+        }
+
+        err
+    }
+
+    /// Get the error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Get the error span.
+    pub fn span(&self) -> Span {
+        Span::new(self.span.offset(), self.span.offset() + self.span.len())
+    }
+
+    /// Get the error kind.
+    pub fn kind(&self) -> TypeErrorKind {
+        self.kind
     }
 }
 

@@ -18,38 +18,190 @@ pub mod ast;
 pub use ast::*;
 pub use sag_lexer::Span;
 
-use miette::{Diagnostic, SourceSpan};
+use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use sag_lexer::{Lexer, SpannedToken, Token};
 use thiserror::Error;
 
-/// Parser error.
-#[derive(Error, Diagnostic, Debug, Clone)]
+/// Error code category for parse errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseErrorKind {
+    /// Unexpected token encountered
+    UnexpectedToken,
+    /// Expected a specific token but found something else
+    ExpectedToken,
+    /// Unexpected end of file
+    UnexpectedEof,
+    /// Missing delimiter (brace, paren, bracket)
+    MissingDelimiter,
+    /// Invalid syntax in a specific context
+    InvalidSyntax,
+    /// Unknown or undefined identifier
+    UnknownIdentifier,
+    /// Lexer error (invalid character, etc.)
+    LexerError,
+}
+
+impl ParseErrorKind {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::UnexpectedToken => "sag::parser::unexpected_token",
+            Self::ExpectedToken => "sag::parser::expected_token",
+            Self::UnexpectedEof => "sag::parser::unexpected_eof",
+            Self::MissingDelimiter => "sag::parser::missing_delimiter",
+            Self::InvalidSyntax => "sag::parser::invalid_syntax",
+            Self::UnknownIdentifier => "sag::parser::unknown_identifier",
+            Self::LexerError => "sag::parser::lexer_error",
+        }
+    }
+}
+
+/// Parser error with rich diagnostic information.
+#[derive(Error, Debug, Clone)]
 #[error("{message}")]
-#[diagnostic(code(sag::parser::error))]
 pub struct ParseError {
+    kind: ParseErrorKind,
     message: String,
-    #[source_code]
     src: String,
-    #[label("{message}")]
     span: SourceSpan,
+    help: Option<String>,
+    labels: Vec<LabeledSpan>,
+}
+
+impl Diagnostic for ParseError {
+    fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        Some(Box::new(self.kind.code()))
+    }
+
+    fn source_code(&self) -> Option<&dyn miette::SourceCode> {
+        Some(&self.src)
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        let mut all_labels = vec![LabeledSpan::new_with_span(
+            Some(self.message.clone()),
+            self.span,
+        )];
+        all_labels.extend(self.labels.iter().cloned());
+        Some(Box::new(all_labels.into_iter()))
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        self.help.as_ref().map(|h| Box::new(h.as_str()) as Box<dyn std::fmt::Display>)
+    }
 }
 
 impl ParseError {
+    /// Create a new parse error.
     pub fn new(message: impl Into<String>, src: &str, span: Span) -> Self {
         Self {
+            kind: ParseErrorKind::InvalidSyntax,
             message: message.into(),
             src: src.to_string(),
             span: (span.start, span.len()).into(),
+            help: None,
+            labels: Vec::new(),
         }
     }
 
-    pub fn expected(expected: &str, found: &Token, src: &str, span: Span) -> Self {
-        Self::new(format!("expected {}, found `{}`", expected, found), src, span)
+    /// Create an error with a specific kind.
+    pub fn with_kind(kind: ParseErrorKind, message: impl Into<String>, src: &str, span: Span) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            src: src.to_string(),
+            span: (span.start, span.len()).into(),
+            help: None,
+            labels: Vec::new(),
+        }
     }
 
+    /// Add help text to the error.
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Add a secondary label at another location.
+    pub fn with_label(mut self, message: impl Into<String>, span: Span) -> Self {
+        self.labels.push(LabeledSpan::new_with_span(
+            Some(message.into()),
+            (span.start, span.len()),
+        ));
+        self
+    }
+
+    /// Create an "expected X, found Y" error.
+    pub fn expected(expected: &str, found: &Token, src: &str, span: Span) -> Self {
+        let message = format!("expected {}, found `{}`", expected, found);
+        let mut err = Self::with_kind(ParseErrorKind::ExpectedToken, message, src, span);
+
+        // Add contextual help for common mistakes
+        err.help = match (expected, found) {
+            ("identifier", Token::StringLiteral(_)) => {
+                Some("identifiers don't need quotes - try removing the quotes".to_string())
+            }
+            (_, Token::RBrace) => {
+                Some("you may have an unclosed block or extra closing brace".to_string())
+            }
+            ("`;`", _) | ("`,`", _) => {
+                Some("this language uses commas to separate items".to_string())
+            }
+            _ => None,
+        };
+
+        err
+    }
+
+    /// Create an unexpected end of file error.
     pub fn unexpected_eof(src: &str) -> Self {
-        let span = Span::new(src.len(), src.len());
-        Self::new("unexpected end of file", src, span)
+        let span = Span::new(src.len().saturating_sub(1), src.len());
+        Self::with_kind(
+            ParseErrorKind::UnexpectedEof,
+            "unexpected end of file",
+            src,
+            span,
+        ).with_help("the file ended unexpectedly - check for unclosed braces or brackets")
+    }
+
+    /// Create an unexpected token error.
+    pub fn unexpected_token(token: &Token, context: &str, src: &str, span: Span) -> Self {
+        Self::with_kind(
+            ParseErrorKind::UnexpectedToken,
+            format!("unexpected `{}` in {}", token, context),
+            src,
+            span,
+        )
+    }
+
+    /// Create a missing delimiter error.
+    pub fn missing_delimiter(delimiter: &str, opening: Option<Span>, src: &str, span: Span) -> Self {
+        let mut err = Self::with_kind(
+            ParseErrorKind::MissingDelimiter,
+            format!("missing closing `{}`", delimiter),
+            src,
+            span,
+        );
+
+        if let Some(open_span) = opening {
+            err = err.with_label("opening delimiter here", open_span);
+        }
+
+        err.with_help(format!("add `{}` to close this block", delimiter))
+    }
+
+    /// Get the error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Get the error span.
+    pub fn span(&self) -> Span {
+        Span::new(self.span.offset(), self.span.offset() + self.span.len())
+    }
+
+    /// Get the error kind.
+    pub fn kind(&self) -> ParseErrorKind {
+        self.kind
     }
 }
 
@@ -113,11 +265,8 @@ impl<'src> Parser<'src> {
             Some(Token::Fn) | Some(Token::Async) => Ok(Item::Function(self.parse_function()?)),
             Some(token) => {
                 let span = self.current_span();
-                Err(ParseError::new(
-                    format!("expected item (agent, skill, type, fn), found `{}`", token),
-                    self.source,
-                    span,
-                ))
+                Err(ParseError::unexpected_token(token, "top-level scope", self.source, span)
+                    .with_help("expected `agent`, `skill`, `type`, `fn`, or `async fn`"))
             }
             None => Err(ParseError::unexpected_eof(self.source)),
         }
@@ -126,7 +275,7 @@ impl<'src> Parser<'src> {
     fn parse_agent(&mut self) -> Result<Agent, ParseError> {
         let start_span = self.expect(Token::Agent)?;
         let name = self.parse_identifier()?;
-        self.expect(Token::LBrace)?;
+        let brace_span = self.expect(Token::LBrace)?;
 
         let mut description = None;
         let mut version = None;
@@ -138,20 +287,30 @@ impl<'src> Parser<'src> {
 
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             match self.peek_token().cloned() {
-                Some(Token::Identifier(ref name)) if name == "description" => {
+                Some(Token::Identifier(ref id)) if id == "description" => {
                     self.advance();
                     self.expect(Token::Colon)?;
                     description = Some(self.parse_string_literal()?);
                 }
-                Some(Token::Identifier(ref name)) if name == "version" => {
+                Some(Token::Identifier(ref id)) if id == "version" => {
                     self.advance();
                     self.expect(Token::Colon)?;
                     version = Some(self.parse_string_literal()?);
                 }
                 Some(Token::Model) => {
                     self.advance();
-                    self.expect(Token::Colon)?;
-                    model = Some(self.parse_model_config()?);
+                    // Support both `model: { ... }` and `model { ... }`
+                    if self.check(&Token::Colon) {
+                        self.advance();
+                    }
+                    // If we have a brace, parse the block
+                    if self.check(&Token::LBrace) {
+                        self.advance();
+                        model = Some(self.parse_model_config()?);
+                        self.expect(Token::RBrace)?;
+                    } else {
+                        model = Some(self.parse_model_config()?);
+                    }
                 }
                 Some(Token::State) => {
                     state = Some(self.parse_state_block()?);
@@ -169,13 +328,13 @@ impl<'src> Parser<'src> {
                 }
                 Some(token) => {
                     let span = self.current_span();
-                    return Err(ParseError::new(
-                        format!("unexpected token in agent body: `{}`", token),
-                        self.source,
-                        span,
-                    ));
+                    return Err(ParseError::unexpected_token(&token, "agent body", self.source, span)
+                        .with_help("valid agent members: description, version, model, state, protocols, tool, on"));
                 }
-                None => return Err(ParseError::unexpected_eof(self.source)),
+                None => {
+                    let span = self.current_span();
+                    return Err(ParseError::missing_delimiter("}", Some(brace_span), self.source, span));
+                }
             }
         }
 
@@ -311,13 +470,13 @@ impl<'src> Parser<'src> {
                 self.advance();
                 self.expect(Token::Colon)?;
                 match key.as_str() {
-                    "provider" => provider = Some(self.parse_string_literal()?),
-                    "name" => name = Some(self.parse_string_literal()?),
+                    "provider" => provider = Some(self.parse_string_or_identifier()?),
+                    "name" => name = Some(self.parse_string_or_identifier()?),
                     "context_window" => context_window = Some(self.parse_number_literal()?),
                     "temperature" => temperature = Some(self.parse_number_literal()?),
                     _ => {
-                        // Skip unknown fields
-                        self.advance();
+                        // Skip unknown fields by parsing and discarding
+                        let _ = self.parse_string_or_identifier().ok();
                     }
                 }
             } else {
@@ -332,6 +491,67 @@ impl<'src> Parser<'src> {
             temperature,
             span: Span::new(start_span.start, self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.span.end).unwrap_or(start_span.end)),
         })
+    }
+
+    /// Parse either a string literal or an identifier as a string value
+    fn parse_string_or_identifier(&mut self) -> Result<StringLit, ParseError> {
+        let span = self.current_span();
+        match self.peek_token().cloned() {
+            Some(Token::StringLiteral(value)) => {
+                self.advance();
+                Ok(StringLit { value, span })
+            }
+            // Handle identifiers and hyphenated identifiers like "gemini-2.0-flash"
+            Some(token) if self.is_identifier_like(&token) => {
+                let mut value = self.token_to_string(&token);
+                self.advance();
+                // Collect hyphen-separated parts
+                while self.check(&Token::Minus) {
+                    self.advance();
+                    if let Some(next) = self.peek_token().cloned() {
+                        if self.is_identifier_like(&next) {
+                            value.push('-');
+                            value.push_str(&self.token_to_string(&next));
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Ok(StringLit { value, span })
+            }
+            Some(token) => {
+                Err(ParseError::expected("string or identifier", &token, self.source, span))
+            }
+            None => Err(ParseError::unexpected_eof(self.source)),
+        }
+    }
+
+    fn is_identifier_like(&self, token: &Token) -> bool {
+        matches!(token,
+            Token::Identifier(_) |
+            Token::NumberLiteral(_) |
+            Token::StringType | Token::NumberType | Token::BooleanType | Token::TimestampType
+        )
+    }
+
+    fn token_to_string(&self, token: &Token) -> String {
+        match token {
+            Token::Identifier(s) => s.clone(),
+            Token::NumberLiteral(n) => {
+                // Preserve decimal point for version-like numbers
+                if n.fract() == 0.0 {
+                    format!("{:.1}", n) // e.g., 2.0 -> "2.0"
+                } else {
+                    n.to_string()
+                }
+            }
+            Token::StringType => "string".to_string(),
+            Token::NumberType => "number".to_string(),
+            Token::BooleanType => "boolean".to_string(),
+            Token::TimestampType => "timestamp".to_string(),
+            _ => String::new(),
+        }
     }
 
     fn parse_state_block(&mut self) -> Result<StateBlock, ParseError> {
@@ -857,11 +1077,9 @@ impl<'src> Parser<'src> {
             Some(Token::TemplateLiteral(s)) => {
                 let span = self.current_span();
                 self.advance();
-                // Simple template literal handling - just treat as string for now
-                Ok(Expr::Template(TemplateExpr {
-                    parts: vec![TemplatePart::String(s)],
-                    span,
-                }))
+                // Parse template literal with ${expr} interpolations
+                let parts = self.parse_template_parts(&s)?;
+                Ok(Expr::Template(TemplateExpr { parts, span }))
             }
             Some(Token::NumberLiteral(n)) => {
                 let span = self.current_span();
@@ -1169,14 +1387,55 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_identifier(&mut self) -> Result<Identifier, ParseError> {
+        let span = self.current_span();
         match self.peek_token().cloned() {
             Some(Token::Identifier(name)) => {
-                let span = self.current_span();
                 self.advance();
                 Ok(Identifier::new(name, span))
             }
+            // Allow type keywords to be used as identifiers (e.g., field names)
+            Some(Token::StringType) => {
+                self.advance();
+                Ok(Identifier::new("string", span))
+            }
+            Some(Token::NumberType) => {
+                self.advance();
+                Ok(Identifier::new("number", span))
+            }
+            Some(Token::BooleanType) => {
+                self.advance();
+                Ok(Identifier::new("boolean", span))
+            }
+            Some(Token::TimestampType) => {
+                self.advance();
+                Ok(Identifier::new("timestamp", span))
+            }
+            Some(Token::ArrayType) => {
+                self.advance();
+                Ok(Identifier::new("array", span))
+            }
+            Some(Token::RecordType) => {
+                self.advance();
+                Ok(Identifier::new("record", span))
+            }
+            Some(Token::TupleType) => {
+                self.advance();
+                Ok(Identifier::new("tuple", span))
+            }
+            Some(Token::OptionalType) => {
+                self.advance();
+                Ok(Identifier::new("optional", span))
+            }
+            // Also allow some other keywords as identifiers
+            Some(Token::Model) => {
+                self.advance();
+                Ok(Identifier::new("model", span))
+            }
+            Some(Token::State) => {
+                self.advance();
+                Ok(Identifier::new("state", span))
+            }
             Some(token) => {
-                let span = self.current_span();
                 Err(ParseError::expected("identifier", &token, self.source, span))
             }
             None => Err(ParseError::unexpected_eof(self.source)),
@@ -1211,6 +1470,80 @@ impl<'src> Parser<'src> {
             }
             None => Err(ParseError::unexpected_eof(self.source)),
         }
+    }
+
+    /// Parse template literal parts, extracting ${expr} interpolations.
+    fn parse_template_parts(&self, template: &str) -> Result<Vec<TemplatePart>, ParseError> {
+        let mut parts = Vec::new();
+        let mut current_string = String::new();
+        let mut chars = template.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '$' && chars.peek() == Some(&'{') {
+                // Found ${, save current string part if not empty
+                if !current_string.is_empty() {
+                    parts.push(TemplatePart::String(current_string.clone()));
+                    current_string.clear();
+                }
+
+                chars.next(); // consume '{'
+
+                // Extract expression text up to matching '}'
+                let mut expr_text = String::new();
+                let mut brace_depth = 1;
+
+                while let Some(ec) = chars.next() {
+                    if ec == '{' {
+                        brace_depth += 1;
+                        expr_text.push(ec);
+                    } else if ec == '}' {
+                        brace_depth -= 1;
+                        if brace_depth == 0 {
+                            break;
+                        }
+                        expr_text.push(ec);
+                    } else {
+                        expr_text.push(ec);
+                    }
+                }
+
+                // Parse the expression
+                if !expr_text.is_empty() {
+                    match Parser::parse_expr_string(&expr_text) {
+                        Ok(expr) => parts.push(TemplatePart::Expr(Box::new(expr))),
+                        Err(_) => {
+                            // If parsing fails, treat as identifier (simple case)
+                            let span = Span::new(0, expr_text.len());
+                            parts.push(TemplatePart::Expr(Box::new(Expr::Identifier(
+                                Identifier::new(expr_text, span),
+                            ))));
+                        }
+                    }
+                }
+            } else {
+                current_string.push(c);
+            }
+        }
+
+        // Add remaining string if not empty
+        if !current_string.is_empty() {
+            parts.push(TemplatePart::String(current_string));
+        }
+
+        // If no parts were created, add empty string
+        if parts.is_empty() {
+            parts.push(TemplatePart::String(String::new()));
+        }
+
+        Ok(parts)
+    }
+
+    /// Parse a standalone expression from a string.
+    pub fn parse_expr_string(source: &str) -> Result<Expr, ParseError> {
+        let mut parser = Parser::new(source).map_err(|e| {
+            ParseError::new(format!("lexer error: {}", e), source, Span::new(0, source.len()))
+        })?;
+        parser.parse_expr()
     }
 
     // Helper methods

@@ -1,0 +1,86 @@
+{
+  "name": "sage-agent-language",
+  "displayName": "Sage Agent Language",
+  "description": "Language support for Sage Agent Programming Language (.sag files)",
+  "version": "0.1.0",
+  "publisher": "sagesyn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sagesyn/sagesyn-lang"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "sage",
+    "agent",
+    "ai",
+    "dsl",
+    "language"
+  ],
+  "activationEvents": [
+    "onLanguage:sag"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "sag",
+        "aliases": [
+          "Sage Agent",
+          "sag"
+        ],
+        "extensions": [
+          ".sag"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sag",
+        "scopeName": "source.sag",
+        "path": "./syntaxes/sag.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Sage Agent Language",
+      "properties": {
+        "sag.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to sag-lsp binary. If empty, will search in PATH."
+        },
+        "sag.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}

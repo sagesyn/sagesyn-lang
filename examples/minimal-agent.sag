@@ -1,0 +1,24 @@
+// Minimal agent to test parsing
+agent HelloAgent {
+  description: "A simple hello world agent"
+  version: "1.0.0"
+
+  tool greet(name: string) -> string {
+    description: "Greet someone"
+    return `Hello, ${name}!`
+  }
+
+  on user_message {
+    let response = greet("World")
+    emit response(response)
+  }
+}
+
+type Message {
+  content: string
+  created_at: number
+}
+
+fn add(a: number, b: number) -> number {
+  return a + b
+}
