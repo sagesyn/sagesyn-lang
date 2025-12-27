@@ -2,8 +2,9 @@
   "name": "sage-agent-language",
   "displayName": "Sage Agent Language",
   "description": "Language support for Sage Agent Programming Language (.sag files)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "sagesyn",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/sagesyn/sagesyn-lang"
@@ -80,7 +81,8 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
-    "typescript": "^5.0.0",
-    "@vscode/vsce": "^2.22.0"
+    "@vscode/vsce": "^2.22.0",
+    "sharp": "^0.34.5",
+    "typescript": "^5.0.0"
   }
 }
