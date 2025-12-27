@@ -11,6 +11,7 @@ pub struct Program {
 
 /// Top-level items in a Sage Agent program.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
     Agent(Agent),
     Skill(Skill),

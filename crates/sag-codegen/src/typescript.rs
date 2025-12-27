@@ -1,5 +1,7 @@
 //! TypeScript code generator.
 
+#![allow(clippy::only_used_in_recursion)]
+
 use super::{CodeGenerator, CodegenError};
 use sag_parser::*;
 
@@ -95,7 +97,7 @@ impl TypeScriptGenerator {
                     BinaryOp::And => "&&",
                     BinaryOp::Or => "||",
                 };
-                format!("({} {} {})", left, op, right)
+                format!("({left} {op} {right})")
             }
             Expr::Unary(un) => {
                 let operand = self.generate_expr(&un.operand);
@@ -103,7 +105,7 @@ impl TypeScriptGenerator {
                     UnaryOp::Not => "!",
                     UnaryOp::Neg => "-",
                 };
-                format!("{}{}", op, operand)
+                format!("{op}{operand}")
             }
             Expr::Call(call) => {
                 let callee = self.generate_expr(&call.callee);

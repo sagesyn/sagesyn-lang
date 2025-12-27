@@ -139,7 +139,7 @@ impl ParseError {
 
     /// Create an "expected X, found Y" error.
     pub fn expected(expected: &str, found: &Token, src: &str, span: Span) -> Self {
-        let message = format!("expected {}, found `{}`", expected, found);
+        let message = format!("expected {expected}, found `{found}`");
         let mut err = Self::with_kind(ParseErrorKind::ExpectedToken, message, src, span);
 
         // Add contextual help for common mistakes
@@ -175,7 +175,7 @@ impl ParseError {
     pub fn unexpected_token(token: &Token, context: &str, src: &str, span: Span) -> Self {
         Self::with_kind(
             ParseErrorKind::UnexpectedToken,
-            format!("unexpected `{}` in {}", token, context),
+            format!("unexpected `{token}` in {context}"),
             src,
             span,
         )
@@ -190,7 +190,7 @@ impl ParseError {
     ) -> Self {
         let mut err = Self::with_kind(
             ParseErrorKind::MissingDelimiter,
-            format!("missing closing `{}`", delimiter),
+            format!("missing closing `{delimiter}`"),
             src,
             span,
         );
@@ -199,7 +199,7 @@ impl ParseError {
             err = err.with_label("opening delimiter here", open_span);
         }
 
-        err.with_help(format!("add `{}` to close this block", delimiter))
+        err.with_help(format!("add `{delimiter}` to close this block"))
     }
 
     /// Get the error message.
@@ -245,7 +245,7 @@ impl<'src> Parser<'src> {
     pub fn parse(source: &str) -> Result<Program, ParseError> {
         let mut parser = Parser::new(source).map_err(|e| {
             ParseError::new(
-                format!("lexer error: {}", e),
+                format!("lexer error: {e}"),
                 source,
                 Span::new(0, source.len().min(1)),
             )
@@ -596,7 +596,7 @@ impl<'src> Parser<'src> {
             Token::NumberLiteral(n) => {
                 // Preserve decimal point for version-like numbers
                 if n.fract() == 0.0 {
-                    format!("{:.1}", n) // e.g., 2.0 -> "2.0"
+                    format!("{n:.1}") // e.g., 2.0 -> "2.0"
                 } else {
                     n.to_string()
                 }
@@ -1277,7 +1277,7 @@ impl<'src> Parser<'src> {
             Some(token) => {
                 let span = self.current_span();
                 Err(ParseError::new(
-                    format!("expected expression, found `{}`", token),
+                    format!("expected expression, found `{token}`"),
                     self.source,
                     span,
                 ))
@@ -1437,7 +1437,7 @@ impl<'src> Parser<'src> {
             Some(token) => {
                 let span = self.current_span();
                 Err(ParseError::new(
-                    format!("expected type, found `{}`", token),
+                    format!("expected type, found `{token}`"),
                     self.source,
                     span,
                 ))
@@ -1632,7 +1632,7 @@ impl<'src> Parser<'src> {
                 let mut expr_text = String::new();
                 let mut brace_depth = 1;
 
-                while let Some(ec) = chars.next() {
+                for ec in chars.by_ref() {
                     if ec == '{' {
                         brace_depth += 1;
                         expr_text.push(ec);
@@ -1682,7 +1682,7 @@ impl<'src> Parser<'src> {
     pub fn parse_expr_string(source: &str) -> Result<Expr, ParseError> {
         let mut parser = Parser::new(source).map_err(|e| {
             ParseError::new(
-                format!("lexer error: {}", e),
+                format!("lexer error: {e}"),
                 source,
                 Span::new(0, source.len()),
             )
@@ -1725,7 +1725,7 @@ impl<'src> Parser<'src> {
             let span = self.current_span();
             match self.peek_token() {
                 Some(found) => Err(ParseError::expected(
-                    &format!("{}", expected),
+                    &format!("{expected}"),
                     found,
                     self.source,
                     span,

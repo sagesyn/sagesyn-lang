@@ -41,7 +41,7 @@ impl std::str::FromStr for Target {
             "typescript" | "ts" => Ok(Target::TypeScript),
             "python" | "py" => Ok(Target::Python),
             "go" | "golang" => Ok(Target::Go),
-            _ => Err(format!("unknown target: {}", s)),
+            _ => Err(format!("unknown target: {s}")),
         }
     }
 }

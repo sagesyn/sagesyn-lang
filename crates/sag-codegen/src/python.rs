@@ -2,6 +2,8 @@
 //!
 //! Generates Python code compatible with Google's Agent Development Kit (ADK).
 
+#![allow(clippy::only_used_in_recursion)]
+
 use crate::{CodeGenerator, CodegenError};
 use sag_parser::*;
 
@@ -228,11 +230,11 @@ impl PythonGenerator {
                 if let Some(else_clause) = &i.else_block {
                     match else_clause.as_ref() {
                         ElseClause::ElseIf(elif) => {
-                            output.push_str(&format!("{}el", indent));
+                            output.push_str(&format!("{indent}el"));
                             self.generate_stmt(&Stmt::If(elif.clone()), output);
                         }
                         ElseClause::Else(block) => {
-                            output.push_str(&format!("{}else:\n", indent));
+                            output.push_str(&format!("{indent}else:\n"));
                             self.indent += 1;
                             self.generate_block(block, output);
                             self.indent -= 1;
@@ -265,7 +267,7 @@ impl PythonGenerator {
                 if let Some(val) = &r.value {
                     output.push_str(&format!("{}return {}\n", indent, self.generate_expr(val)));
                 } else {
-                    output.push_str(&format!("{}return\n", indent));
+                    output.push_str(&format!("{indent}return\n"));
                 }
             }
             Stmt::Emit(e) => {
@@ -354,7 +356,7 @@ impl PythonGenerator {
             .description
             .as_ref()
             .map(|d| d.value.clone())
-            .unwrap_or_else(|| format!("{} agent", name));
+            .unwrap_or_else(|| format!("{name} agent"));
 
         // Get model info
         let model_name = agent
@@ -368,17 +370,17 @@ impl PythonGenerator {
         let mut state_class = String::new();
         let mut state_init = String::new();
         if let Some(state_block) = &agent.state {
-            let state_name = format!("{}State", name);
-            state_class.push_str(&format!("@dataclass\nclass {}:\n", state_name));
+            let state_name = format!("{name}State");
+            state_class.push_str(&format!("@dataclass\nclass {state_name}:\n"));
             state_class.push_str("    \"\"\"Agent state.\"\"\"\n");
             for field in &state_block.fields {
                 let ty = self.generate_type(&field.ty);
                 let default = if field.optional {
-                    format!(": {} | None = None", ty)
+                    format!(": {ty} | None = None")
                 } else {
                     // Use appropriate defaults based on type
                     let default_val = self.get_type_default(&field.ty);
-                    format!(": {} = {}", ty, default_val)
+                    format!(": {ty} = {default_val}")
                 };
                 state_class.push_str(&format!("    {}{}\n", field.name.name, default));
             }

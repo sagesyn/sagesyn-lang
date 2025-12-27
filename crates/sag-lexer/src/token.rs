@@ -360,13 +360,13 @@ impl fmt::Display for Token {
             Token::OrOr => write!(f, "||"),
             Token::Pipe => write!(f, "|"),
             Token::Ampersand => write!(f, "&"),
-            Token::StringLiteral(s) => write!(f, "\"{}\"", s),
-            Token::TemplateLiteral(s) => write!(f, "`{}`", s),
-            Token::NumberLiteral(n) => write!(f, "{}", n),
-            Token::Identifier(s) => write!(f, "{}", s),
-            Token::LineComment(s) => write!(f, "//{}", s),
-            Token::DocComment(s) => write!(f, "///{}", s),
-            Token::BlockComment(s) => write!(f, "/*{}*/", s),
+            Token::StringLiteral(s) => write!(f, "\"{s}\""),
+            Token::TemplateLiteral(s) => write!(f, "`{s}`"),
+            Token::NumberLiteral(n) => write!(f, "{n}"),
+            Token::Identifier(s) => write!(f, "{s}"),
+            Token::LineComment(s) => write!(f, "//{s}"),
+            Token::DocComment(s) => write!(f, "///{s}"),
+            Token::BlockComment(s) => write!(f, "/*{s}*/"),
         }
     }
 }

@@ -132,7 +132,7 @@ impl TypeError {
     pub fn type_mismatch(expected: &str, actual: &str, src: &str, span: Span) -> Self {
         Self::with_kind(
             TypeErrorKind::TypeMismatch,
-            format!("expected `{}`, found `{}`", expected, actual),
+            format!("expected `{expected}`, found `{actual}`"),
             src,
             span,
         )
@@ -142,7 +142,7 @@ impl TypeError {
     pub fn undefined_type(name: &str, src: &str, span: Span) -> Self {
         Self::with_kind(
             TypeErrorKind::UndefinedType,
-            format!("undefined type `{}`", name),
+            format!("undefined type `{name}`"),
             src,
             span,
         )
@@ -153,13 +153,13 @@ impl TypeError {
     pub fn undefined_variable(name: &str, src: &str, span: Span, similar: Option<&str>) -> Self {
         let mut err = Self::with_kind(
             TypeErrorKind::UndefinedVariable,
-            format!("undefined variable `{}`", name),
+            format!("undefined variable `{name}`"),
             src,
             span,
         );
 
         if let Some(similar_name) = similar {
-            err = err.with_help(format!("did you mean `{}`?", similar_name));
+            err = err.with_help(format!("did you mean `{similar_name}`?"));
         }
 
         err
@@ -169,7 +169,7 @@ impl TypeError {
     pub fn not_callable(ty: &str, src: &str, span: Span) -> Self {
         Self::with_kind(
             TypeErrorKind::NotCallable,
-            format!("type `{}` is not callable", ty),
+            format!("type `{ty}` is not callable"),
             src,
             span,
         )
@@ -207,7 +207,7 @@ impl TypeError {
     pub fn no_such_property(ty: &str, property: &str, src: &str, span: Span) -> Self {
         Self::with_kind(
             TypeErrorKind::NoSuchProperty,
-            format!("type `{}` has no property `{}`", ty, property),
+            format!("type `{ty}` has no property `{property}`"),
             src,
             span,
         )
@@ -217,7 +217,7 @@ impl TypeError {
     pub fn duplicate_definition(name: &str, src: &str, span: Span, original: Option<Span>) -> Self {
         let mut err = Self::with_kind(
             TypeErrorKind::DuplicateDefinition,
-            format!("`{}` is already defined", name),
+            format!("`{name}` is already defined"),
             src,
             span,
         );
@@ -356,6 +356,7 @@ impl TypeEnv {
 }
 
 /// The type checker.
+#[allow(dead_code)]
 pub struct TypeChecker<'src> {
     source: &'src str,
     env: TypeEnv,
@@ -430,6 +431,7 @@ impl<'src> TypeChecker<'src> {
         }
     }
 
+    #[allow(dead_code)]
     fn error(&mut self, message: impl Into<String>, span: Span) {
         self.errors.push(TypeError::new(message, self.source, span));
     }

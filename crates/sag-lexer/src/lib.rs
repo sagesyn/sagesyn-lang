@@ -27,12 +27,11 @@ use thiserror::Error;
 #[derive(Error, Diagnostic, Debug, Clone, PartialEq)]
 #[error("Invalid token")]
 #[diagnostic(code(sag::lexer::invalid_token))]
+#[allow(unused)]
 pub struct LexerError {
     #[source_code]
-    #[allow(dead_code)]
     src: String,
     #[label("unexpected character")]
-    #[allow(dead_code)]
     span: SourceSpan,
 }
 
