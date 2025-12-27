@@ -36,6 +36,7 @@ pub struct LexerError {
 }
 
 impl LexerError {
+    #[allow(unused_assignments)]
     pub fn new(src: &str, span: Span) -> Self {
         Self {
             src: src.to_string(),
