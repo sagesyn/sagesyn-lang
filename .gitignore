@@ -35,3 +35,7 @@ lcov.info
 # Local configuration
 .env
 .env.local
+
+# Node.js
+node_modules/
+*.vsix
