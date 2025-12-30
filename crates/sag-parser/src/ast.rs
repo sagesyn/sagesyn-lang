@@ -312,6 +312,28 @@ pub enum BinaryOp {
     Or,
 }
 
+impl BinaryOp {
+    /// Get the operator as a string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Mul => "*",
+            BinaryOp::Div => "/",
+            BinaryOp::Mod => "%",
+            BinaryOp::Pow => "**",
+            BinaryOp::Eq => "==",
+            BinaryOp::NotEq => "!=",
+            BinaryOp::Lt => "<",
+            BinaryOp::LtEq => "<=",
+            BinaryOp::Gt => ">",
+            BinaryOp::GtEq => ">=",
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+        }
+    }
+}
+
 /// Unary expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryExpr {
@@ -325,6 +347,16 @@ pub struct UnaryExpr {
 pub enum UnaryOp {
     Not,
     Neg,
+}
+
+impl UnaryOp {
+    /// Get the operator as a string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Not => "!",
+            UnaryOp::Neg => "-",
+        }
+    }
 }
 
 /// Function call expression.

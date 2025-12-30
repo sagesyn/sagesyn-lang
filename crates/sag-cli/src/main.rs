@@ -157,15 +157,21 @@ fn check(file: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn format_file(file: &PathBuf, _write: bool) -> Result<()> {
+fn format_file(file: &PathBuf, write: bool) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
 
     // Parse
-    let _program = SagParser::parse(&source).map_err(miette::Report::new)?;
+    let program = SagParser::parse(&source).map_err(miette::Report::new)?;
 
-    // TODO: Implement formatter
-    println!("Formatting not yet implemented");
-    println!("{source}");
+    // Format
+    let formatted = sag_codegen::Formatter::format(&program);
+
+    if write {
+        fs::write(file, &formatted).into_diagnostic()?;
+        println!("Formatted {}", file.display());
+    } else {
+        print!("{formatted}");
+    }
 
     Ok(())
 }

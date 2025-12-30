@@ -955,6 +955,73 @@ impl<'src> Parser<'src> {
         })
     }
 
+    fn parse_match_arm(&mut self) -> Result<MatchArm, ParseError> {
+        let start = self.current_span();
+        let pattern = self.parse_pattern()?;
+        self.expect(Token::FatArrow)?;
+        let body = self.parse_expr()?;
+
+        Ok(MatchArm {
+            pattern,
+            body,
+            span: Span::new(
+                start.start,
+                self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start.end),
+            ),
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        match self.peek_token().cloned() {
+            Some(Token::StringLiteral(s)) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Pattern::Literal(Literal::String(StringLit { value: s, span })))
+            }
+            Some(Token::NumberLiteral(n)) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Pattern::Literal(Literal::Number(NumberLit { value: n, span })))
+            }
+            Some(Token::True) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Pattern::Literal(Literal::Boolean(BoolLit { value: true, span })))
+            }
+            Some(Token::False) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Pattern::Literal(Literal::Boolean(BoolLit { value: false, span })))
+            }
+            Some(Token::Null) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Pattern::Literal(Literal::Null(span)))
+            }
+            Some(Token::Underscore) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Pattern::Wildcard(span))
+            }
+            Some(Token::Identifier(_)) => {
+                let ident = self.parse_identifier()?;
+                Ok(Pattern::Identifier(ident))
+            }
+            Some(token) => {
+                let span = self.current_span();
+                Err(ParseError::new(
+                    format!("expected pattern, found `{token}`"),
+                    self.source,
+                    span,
+                ))
+            }
+            None => Err(ParseError::unexpected_eof(self.source)),
+        }
+    }
+
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
         self.parse_assignment()
     }
@@ -1230,6 +1297,24 @@ impl<'src> Parser<'src> {
                 let span = Span::new(start.start, self.expr_span(&expr).end);
                 Ok(Expr::Await(AwaitExpr {
                     expr: Box::new(expr),
+                    span,
+                }))
+            }
+            Some(Token::Match) => {
+                let start = self.current_span();
+                self.advance();
+                let subject = self.parse_expr()?;
+                self.expect(Token::LBrace)?;
+                let mut arms = Vec::new();
+                while !self.check(&Token::RBrace) && !self.is_at_end() {
+                    let arm = self.parse_match_arm()?;
+                    arms.push(arm);
+                }
+                let end = self.expect(Token::RBrace)?;
+                let span = Span::new(start.start, end.end);
+                Ok(Expr::Match(MatchExpr {
+                    subject: Box::new(subject),
+                    arms,
                     span,
                 }))
             }
@@ -1859,6 +1944,597 @@ mod tests {
         match &program.items[0] {
             Item::Function(func) => {
                 assert!(func.is_async);
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_with_tool() {
+        let source = r#"
+            agent MyAgent {
+                tool greet(name: string) -> string {
+                    description: "Greet someone"
+                    return `Hello, ${name}!`
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Agent(agent) => {
+                assert_eq!(agent.tools.len(), 1);
+                assert_eq!(agent.tools[0].name.name, "greet");
+                assert!(agent.tools[0].description.is_some());
+            }
+            _ => panic!("expected agent"),
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_with_state() {
+        let source = r#"
+            agent MyAgent {
+                state {
+                    count: number
+                    name?: string
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Agent(agent) => {
+                let state = agent.state.as_ref().expect("state should exist");
+                assert_eq!(state.fields.len(), 2);
+                assert!(!state.fields[0].optional);
+                assert!(state.fields[1].optional);
+            }
+            _ => panic!("expected agent"),
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_with_handler() {
+        let source = r#"
+            agent MyAgent {
+                on user_message {
+                    let x = 1
+                    emit response(x)
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Agent(agent) => {
+                assert_eq!(agent.handlers.len(), 1);
+                assert_eq!(agent.handlers[0].event.name, "user_message");
+            }
+            _ => panic!("expected agent"),
+        }
+    }
+
+    #[test]
+    fn test_parse_if_else_statement() {
+        let source = r#"
+            fn test() -> number {
+                if x > 0 {
+                    return 1
+                } else if x < 0 {
+                    return -1
+                } else {
+                    return 0
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.body.stmts.len(), 1);
+                match &func.body.stmts[0] {
+                    Stmt::If(if_stmt) => {
+                        assert!(if_stmt.else_block.is_some());
+                    }
+                    _ => panic!("expected if statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_loop() {
+        let source = r#"
+            fn test(items: array<string>) {
+                for item in items {
+                    console.log(item)
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::For(for_stmt) => {
+                        assert_eq!(for_stmt.binding.name, "item");
+                    }
+                    _ => panic!("expected for statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_while_loop() {
+        let source = r#"
+            fn test() {
+                while x > 0 {
+                    x = x - 1
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::While(_) => {}
+                    _ => panic!("expected while statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_binary_expressions() {
+        let source = r#"
+            fn test() -> number {
+                return 1 + 2 * 3 - 4 / 2
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Return(ret) => {
+                        assert!(ret.value.is_some());
+                    }
+                    _ => panic!("expected return statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_comparison_expressions() {
+        let source = r#"
+            fn test(a: number, b: number) -> boolean {
+                return a >= b && b <= 10 || a == b
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.params.len(), 2);
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_literal() {
+        let source = r#"
+            fn test() -> array<number> {
+                return [1, 2, 3, 4, 5]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Return(ret) => {
+                        match ret.value.as_ref().unwrap() {
+                            Expr::Array(arr) => {
+                                assert_eq!(arr.elements.len(), 5);
+                            }
+                            _ => panic!("expected array expression"),
+                        }
+                    }
+                    _ => panic!("expected return statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_record_literal() {
+        let source = r#"
+            fn test() {
+                let user = { name: "John", age: 30 }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Let(let_stmt) => {
+                        match &let_stmt.value {
+                            Expr::Record(rec) => {
+                                assert_eq!(rec.fields.len(), 2);
+                            }
+                            _ => panic!("expected record expression"),
+                        }
+                    }
+                    _ => panic!("expected let statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_member_access() {
+        let source = r#"
+            fn test() {
+                let x = user.name.first
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Let(let_stmt) => {
+                        match &let_stmt.value {
+                            Expr::Member(m) => {
+                                assert_eq!(m.property.name, "first");
+                            }
+                            _ => panic!("expected member expression"),
+                        }
+                    }
+                    _ => panic!("expected let statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_index_access() {
+        let source = r#"
+            fn test() {
+                let x = arr[0]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Let(let_stmt) => {
+                        match &let_stmt.value {
+                            Expr::Index(_) => {}
+                            _ => panic!("expected index expression"),
+                        }
+                    }
+                    _ => panic!("expected let statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let source = r#"
+            fn test() {
+                let x = foo(1, "hello", true)
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Let(let_stmt) => {
+                        match &let_stmt.value {
+                            Expr::Call(call) => {
+                                assert_eq!(call.args.len(), 3);
+                            }
+                            _ => panic!("expected call expression"),
+                        }
+                    }
+                    _ => panic!("expected let statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_alias() {
+        let source = r#"
+            type ID = string
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::TypeDef(typedef) => {
+                assert_eq!(typedef.name.name, "ID");
+                match &typedef.kind {
+                    TypeDefKind::Alias(_) => {}
+                    _ => panic!("expected alias"),
+                }
+            }
+            _ => panic!("expected type def"),
+        }
+    }
+
+    #[test]
+    fn test_parse_union_type() {
+        let source = r#"
+            type Result = Success | Error | Pending
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::TypeDef(typedef) => {
+                match &typedef.kind {
+                    TypeDefKind::Alias(TypeExpr::Union(types)) => {
+                        assert_eq!(types.len(), 3);
+                    }
+                    _ => panic!("expected union type"),
+                }
+            }
+            _ => panic!("expected type def"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_type() {
+        let source = r#"
+            type Container<T> {
+                value: T
+                items: array<T>
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::TypeDef(typedef) => {
+                assert_eq!(typedef.generics.len(), 1);
+                assert_eq!(typedef.generics[0].name, "T");
+            }
+            _ => panic!("expected type def"),
+        }
+    }
+
+    #[test]
+    fn test_parse_state_assignment() {
+        let source = r#"
+            agent MyAgent {
+                state {
+                    counter: number
+                }
+                on user_message {
+                    state.counter = state.counter + 1
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Agent(agent) => {
+                assert_eq!(agent.handlers.len(), 1);
+                match &agent.handlers[0].body.stmts[0] {
+                    Stmt::Expr(expr_stmt) => {
+                        match &expr_stmt.expr {
+                            Expr::Assign(_) => {}
+                            _ => panic!("expected assignment expression"),
+                        }
+                    }
+                    _ => panic!("expected expression statement"),
+                }
+            }
+            _ => panic!("expected agent"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mcp_tool() {
+        let source = r#"
+            agent MyAgent {
+                tool get_weather(city: string) -> WeatherData {
+                    description: "Get weather"
+                    mcp_server: weather_api
+                    mcp_tool: current_weather
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Agent(agent) => {
+                let tool = &agent.tools[0];
+                assert!(tool.mcp_server.is_some());
+                assert!(tool.mcp_tool.is_some());
+                assert!(tool.body.is_none());
+            }
+            _ => panic!("expected agent"),
+        }
+    }
+
+    #[test]
+    fn test_parse_var_statement() {
+        let source = r#"
+            fn test() {
+                var x = 10
+                x = x + 1
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Var(var_stmt) => {
+                        assert_eq!(var_stmt.name.name, "x");
+                    }
+                    _ => panic!("expected var statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unary_expressions() {
+        let source = r#"
+            fn test() -> boolean {
+                return !true && -5 < 0
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.body.stmts.len(), 1);
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_await_expression() {
+        let source = r#"
+            async fn test() {
+                let result = await fetch_data()
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                assert!(func.is_async);
+                match &func.body.stmts[0] {
+                    Stmt::Let(let_stmt) => {
+                        match &let_stmt.value {
+                            Expr::Await(_) => {}
+                            _ => panic!("expected await expression"),
+                        }
+                    }
+                    _ => panic!("expected let statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_match_expression() {
+        // match expression is parsed via let binding
+        let source = r#"
+            fn test(x: number) -> string {
+                let result = match x {
+                    0 => "zero"
+                    1 => "one"
+                    _ => "other"
+                }
+                return result
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.body.stmts[0] {
+                    Stmt::Let(let_stmt) => {
+                        match &let_stmt.value {
+                            Expr::Match(m) => {
+                                assert_eq!(m.arms.len(), 3);
+                            }
+                            _ => panic!("expected match expression"),
+                        }
+                    }
+                    _ => panic!("expected let statement"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_function_type() {
+        let source = r#"
+            fn apply(callback: (number, number) -> number, a: number, b: number) -> number {
+                return callback(a, b)
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                assert_eq!(func.params.len(), 3);
+                match &func.params[0].ty {
+                    TypeExpr::Function(ft) => {
+                        assert_eq!(ft.params.len(), 2);
+                    }
+                    _ => panic!("expected function type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_type() {
+        // Test tuple type annotation (tuple literals are arrays in this language)
+        let source = r#"
+            fn test(data: tuple<string, number, boolean>) -> string {
+                return data[0]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match &func.params[0].ty {
+                    TypeExpr::Tuple(t) => {
+                        assert_eq!(t.elements.len(), 3);
+                    }
+                    _ => panic!("expected tuple type"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_record_type() {
+        let source = r#"
+            fn test() -> record<string, number> {
+                return {}
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+
+        match &program.items[0] {
+            Item::Function(func) => {
+                match func.return_type.as_ref().unwrap() {
+                    TypeExpr::Record(_) => {}
+                    _ => panic!("expected record type"),
+                }
             }
             _ => panic!("expected function"),
         }

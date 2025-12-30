@@ -1574,4 +1574,408 @@ mod tests {
         let result = TypeChecker::check(source, &program);
         assert!(result.is_ok(), "Expected valid type alias usage");
     }
+
+    #[test]
+    fn test_check_if_statement() {
+        let source = r#"
+            fn test(x: number) -> number {
+                if x > 0 {
+                    return 1
+                } else {
+                    return 0
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid if statement");
+    }
+
+    #[test]
+    fn test_check_invalid_if_condition() {
+        let source = r#"
+            fn test(x: number) -> number {
+                if x {
+                    return 1
+                }
+                return 0
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected type error for non-boolean condition");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, TypeErrorKind::TypeMismatch);
+    }
+
+    #[test]
+    fn test_check_for_loop() {
+        let source = r#"
+            fn sum(nums: array<number>) -> number {
+                var total = 0
+                for n in nums {
+                    total = total + n
+                }
+                return total
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid for loop");
+    }
+
+    #[test]
+    fn test_check_while_loop() {
+        let source = r#"
+            fn countdown(n: number) -> number {
+                var count = n
+                while count > 0 {
+                    count = count - 1
+                }
+                return count
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid while loop");
+    }
+
+    #[test]
+    fn test_check_invalid_while_condition() {
+        let source = r#"
+            fn test(x: string) {
+                while x {
+                    return
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected type error for non-boolean while condition");
+    }
+
+    #[test]
+    fn test_check_array_literal() {
+        let source = r#"
+            fn get_nums() -> array<number> {
+                return [1, 2, 3, 4, 5]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid array literal");
+    }
+
+    #[test]
+    fn test_check_mixed_array_error() {
+        let source = r#"
+            fn test() -> array<number> {
+                return [1, "hello", 3]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for mixed array types");
+    }
+
+    #[test]
+    fn test_check_array_index() {
+        let source = r#"
+            fn get_first(arr: array<string>) -> string {
+                return arr[0]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid array indexing");
+    }
+
+    #[test]
+    fn test_check_invalid_array_index() {
+        let source = r#"
+            fn get_item(arr: array<string>) -> string {
+                return arr["key"]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for non-numeric array index");
+    }
+
+    #[test]
+    fn test_check_string_concatenation() {
+        let source = r#"
+            fn greet(name: string) -> string {
+                return "Hello, " + name
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid string concatenation");
+    }
+
+    #[test]
+    fn test_check_negation() {
+        let source = r#"
+            fn negate(x: number) -> number {
+                return -x
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid negation");
+    }
+
+    #[test]
+    fn test_check_invalid_negation() {
+        let source = r#"
+            fn test(s: string) -> number {
+                return -s
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for negating non-number");
+    }
+
+    #[test]
+    fn test_check_struct_type() {
+        let source = r#"
+            type User {
+                name: string
+                age: number
+            }
+            fn get_user() -> User {
+                return { name: "John", age: 30 }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid struct type usage");
+    }
+
+    #[test]
+    fn test_check_duplicate_field() {
+        let source = r#"
+            type User {
+                name: string
+                name: number
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for duplicate field");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, TypeErrorKind::DuplicateDefinition);
+    }
+
+    #[test]
+    fn test_check_agent_tool() {
+        let source = r#"
+            agent MyAgent {
+                tool greet(name: string) -> string {
+                    return "Hello"
+                }
+                on user_message {
+                    let result = greet("World")
+                    emit response(result)
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid agent with tool");
+    }
+
+    #[test]
+    fn test_check_agent_state() {
+        // Note: state.counter uses Unknown type for member access, which allows
+        // arithmetic operations but produces Unknown result
+        let source = r#"
+            agent MyAgent {
+                state {
+                    counter: number
+                }
+                on user_message {
+                    let x = state.counter
+                    emit response(x)
+                }
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid agent with state");
+    }
+
+    #[test]
+    fn test_check_async_function() {
+        let source = r#"
+            async fn fetch_data(url: string) -> string {
+                let result = await http.get(url)
+                return result
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid async function");
+    }
+
+    #[test]
+    fn test_check_optional_type() {
+        // Test that optional types work with null assignment
+        let source = r#"
+            fn maybe_get(flag: boolean) -> optional<string> {
+                if flag {
+                    return "value"
+                }
+                return null
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid optional type usage");
+    }
+
+    #[test]
+    fn test_check_union_type() {
+        let source = r#"
+            type Result = string | number
+            fn get_result(flag: boolean) -> Result {
+                if flag {
+                    return "success"
+                }
+                return 42
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid union type usage");
+    }
+
+    #[test]
+    fn test_check_record_type() {
+        let source = r#"
+            fn get_value(data: record<string, number>, key: string) -> number {
+                return data[key]
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid record type usage");
+    }
+
+    #[test]
+    fn test_check_equality_different_types() {
+        let source = r#"
+            fn compare(a: string, b: number) -> boolean {
+                return a == b
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        // Equality comparison between different types is allowed (returns false at runtime)
+        assert!(result.is_ok(), "Expected equality comparison to be valid");
+    }
+
+    #[test]
+    fn test_check_invalid_arithmetic() {
+        let source = r#"
+            fn test(a: string, b: number) -> number {
+                return a * b
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for string * number");
+    }
+
+    #[test]
+    fn test_check_invalid_logical_and() {
+        let source = r#"
+            fn test(a: number, b: boolean) -> boolean {
+                return a && b
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for number && boolean");
+    }
+
+    #[test]
+    fn test_check_not_callable() {
+        let source = r#"
+            fn test(x: number) -> number {
+                return x()
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for calling non-function");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, TypeErrorKind::NotCallable);
+    }
+
+    #[test]
+    fn test_check_wrong_argument_type() {
+        let source = r#"
+            fn greet(name: string) -> string {
+                return name
+            }
+            fn main() -> string {
+                return greet(42)
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_err(), "Expected error for wrong argument type");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, TypeErrorKind::TypeMismatch);
+    }
+
+    #[test]
+    fn test_check_match_expression() {
+        let source = r#"
+            fn classify(x: number) -> string {
+                let result = match x {
+                    0 => "zero"
+                    1 => "one"
+                    _ => "other"
+                }
+                return result
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid match expression");
+    }
+
+    #[test]
+    fn test_check_template_literal() {
+        let source = r#"
+            fn greet(name: string) -> string {
+                return `Hello, ${name}!`
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid template literal");
+    }
+
+    #[test]
+    fn test_check_nested_function_call() {
+        let source = r#"
+            fn add(a: number, b: number) -> number {
+                return a + b
+            }
+            fn mul(a: number, b: number) -> number {
+                return a * b
+            }
+            fn compute() -> number {
+                return add(mul(2, 3), mul(4, 5))
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let result = TypeChecker::check(source, &program);
+        assert!(result.is_ok(), "Expected valid nested function calls");
+    }
 }

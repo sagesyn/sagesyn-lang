@@ -2,9 +2,12 @@
 //!
 //! This crate generates code in various target languages from an AST.
 
+pub mod formatter;
 pub mod go;
 pub mod python;
 pub mod typescript;
+
+pub use formatter::{FormatConfig, Formatter};
 
 use miette::Diagnostic;
 use sag_parser::Program;
