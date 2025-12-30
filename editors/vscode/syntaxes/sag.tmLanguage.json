@@ -67,7 +67,7 @@
       "patterns": [
         {
           "name": "keyword.control.sag",
-          "match": "\\b(if|else|for|while|in|match|return|emit|on|await|async)\\b"
+          "match": "\\b(if|else|for|while|in|match|return|emit|on|await|async|try|catch|finally|throw)\\b"
         },
         {
           "name": "keyword.declaration.sag",
@@ -116,6 +116,18 @@
         {
           "name": "keyword.operator.arrow.sag",
           "match": "(->|=>)"
+        },
+        {
+          "name": "keyword.operator.optional.sag",
+          "match": "(\\?\\.\\[|\\?\\.)"
+        },
+        {
+          "name": "keyword.operator.nullish.sag",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.range.sag",
+          "match": "(\\.\\.\\.|\\.\\.\\.=|\\.\\.|\\.\\.=)"
         }
       ]
     },
