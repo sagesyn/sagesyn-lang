@@ -258,6 +258,34 @@ pub enum Token {
     #[token("&")]
     Ampersand,
 
+    #[token("?.")]
+    QuestionDot,
+
+    #[token("??")]
+    QuestionQuestion,
+
+    #[token("..=")]
+    DotDotEq,
+
+    #[token("..")]
+    DotDot,
+
+    #[token("...")]
+    DotDotDot,
+
+    // === Error Handling Keywords ===
+    #[token("try")]
+    Try,
+
+    #[token("catch")]
+    Catch,
+
+    #[token("finally")]
+    Finally,
+
+    #[token("throw")]
+    Throw,
+
     // === Literals ===
     #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice()[1..lex.slice().len()-1].to_string())]
     StringLiteral(String),
@@ -360,6 +388,15 @@ impl fmt::Display for Token {
             Token::OrOr => write!(f, "||"),
             Token::Pipe => write!(f, "|"),
             Token::Ampersand => write!(f, "&"),
+            Token::QuestionDot => write!(f, "?."),
+            Token::QuestionQuestion => write!(f, "??"),
+            Token::DotDotEq => write!(f, "..="),
+            Token::DotDot => write!(f, ".."),
+            Token::DotDotDot => write!(f, "..."),
+            Token::Try => write!(f, "try"),
+            Token::Catch => write!(f, "catch"),
+            Token::Finally => write!(f, "finally"),
+            Token::Throw => write!(f, "throw"),
             Token::StringLiteral(s) => write!(f, "\"{s}\""),
             Token::TemplateLiteral(s) => write!(f, "`{s}`"),
             Token::NumberLiteral(n) => write!(f, "{n}"),

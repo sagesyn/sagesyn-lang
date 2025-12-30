@@ -4,9 +4,10 @@
 
 use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use sag_parser::{
-    Agent, ArrowBody, BinaryOp, Block, ElseClause, EventHandler, Expr, Field, ForStmt, Function,
-    IfStmt, Item, LetStmt, Literal, MatchExpr, Pattern, Program, Skill, Span, Stmt, Tool, TypeDef,
-    TypeDefKind, TypeExpr, UnaryOp, VarStmt, WhileStmt,
+    Agent, ArrayPatternElement, ArrowBody, BinaryOp, BindingPattern, Block, ElseClause,
+    EventHandler, Expr, Field, ForStmt, Function, IfStmt, Item, LetStmt, Literal, MatchExpr,
+    Pattern, Program, Skill, Span, Stmt, Tool, TryStmt, TypeDef, TypeDefKind, TypeExpr, UnaryOp,
+    VarStmt, WhileStmt,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -787,6 +788,40 @@ impl<'src> TypeChecker<'src> {
                 self.check_block(block);
                 self.env = *self.env.parent.take().unwrap();
             }
+            Stmt::Try(try_stmt) => self.check_try_stmt(try_stmt),
+            Stmt::Throw(throw_stmt) => {
+                self.infer_expr(&throw_stmt.value);
+            }
+        }
+    }
+
+    fn check_try_stmt(&mut self, stmt: &TryStmt) {
+        // Check try block
+        let parent_env = std::mem::take(&mut self.env);
+        self.env = parent_env.child();
+        self.check_block(&stmt.try_block);
+        self.env = *self.env.parent.take().unwrap();
+
+        // Check catch block
+        if let Some(ref catch) = stmt.catch {
+            let parent_env = std::mem::take(&mut self.env);
+            self.env = parent_env.child();
+            if let Some(ref param) = catch.param {
+                let param_ty = catch.param_type.as_ref()
+                    .map(|t| self.resolve_type(t))
+                    .unwrap_or(Type::Unknown);
+                self.env.define(&param.name, param_ty);
+            }
+            self.check_block(&catch.body);
+            self.env = *self.env.parent.take().unwrap();
+        }
+
+        // Check finally block
+        if let Some(ref finally) = stmt.finally {
+            let parent_env = std::mem::take(&mut self.env);
+            self.env = parent_env.child();
+            self.check_block(finally);
+            self.env = *self.env.parent.take().unwrap();
         }
     }
 
@@ -808,7 +843,7 @@ impl<'src> TypeChecker<'src> {
             value_ty
         };
 
-        self.env.define(&stmt.name.name, declared_ty);
+        self.define_binding_pattern(&stmt.pattern, declared_ty);
     }
 
     fn check_var_stmt(&mut self, stmt: &VarStmt) {
@@ -829,7 +864,65 @@ impl<'src> TypeChecker<'src> {
             value_ty
         };
 
-        self.env.define(&stmt.name.name, declared_ty);
+        self.define_binding_pattern(&stmt.pattern, declared_ty);
+    }
+
+    fn define_binding_pattern(&mut self, pattern: &BindingPattern, ty: Type) {
+        match pattern {
+            BindingPattern::Identifier(ident) => {
+                self.env.define(&ident.name, ty);
+            }
+            BindingPattern::Object(obj) => {
+                // For object destructuring, define each field
+                // We use the value type of the record as the field type
+                let value_ty = match &ty {
+                    Type::Record(_, val) => (**val).clone(),
+                    Type::Named(name) => self.get_named_type_field_type(name),
+                    _ => Type::Unknown,
+                };
+                for field in &obj.fields {
+                    let field_ty = value_ty.clone();
+                    if let Some(ref binding) = field.binding {
+                        self.define_binding_pattern(binding, field_ty);
+                    } else {
+                        self.env.define(&field.key.name, field_ty);
+                    }
+                }
+                if let Some(ref rest) = obj.rest {
+                    // Rest has the same type as the original
+                    self.env.define(&rest.name, ty.clone());
+                }
+            }
+            BindingPattern::Array(arr) => {
+                // For array destructuring, define each element
+                let elem_ty = match &ty {
+                    Type::Array(elem) => (**elem).clone(),
+                    Type::Tuple(elems) => elems.first().cloned().unwrap_or(Type::Unknown),
+                    _ => Type::Unknown,
+                };
+                for (i, elem) in arr.elements.iter().enumerate() {
+                    let el_ty = match &ty {
+                        Type::Tuple(elems) => elems.get(i).cloned().unwrap_or(Type::Unknown),
+                        _ => elem_ty.clone(),
+                    };
+                    match elem {
+                        ArrayPatternElement::Pattern(p) => {
+                            self.define_binding_pattern(p, el_ty);
+                        }
+                        ArrayPatternElement::Rest(ident) => {
+                            self.env.define(&ident.name, Type::Array(Box::new(elem_ty.clone())));
+                        }
+                        ArrayPatternElement::Hole => {}
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_named_type_field_type(&self, _name: &str) -> Type {
+        // For named types (structs), we'd need to look up the field types
+        // For now, return Unknown
+        Type::Unknown
     }
 
     fn check_if_stmt(&mut self, stmt: &IfStmt) {
@@ -935,7 +1028,9 @@ impl<'src> TypeChecker<'src> {
             Expr::Unary(un) => self.infer_unary(un),
             Expr::Call(call) => self.infer_call(call),
             Expr::Member(mem) => self.infer_member(mem),
+            Expr::OptionalMember(mem) => self.infer_optional_member(mem),
             Expr::Index(idx) => self.infer_index(idx),
+            Expr::OptionalIndex(idx) => self.infer_optional_index(idx),
             Expr::Array(arr) => self.infer_array(arr),
             Expr::Record(rec) => self.infer_record(rec),
             Expr::Await(aw) => self.infer_expr(&aw.expr),
@@ -943,7 +1038,65 @@ impl<'src> TypeChecker<'src> {
             Expr::Match(m) => self.infer_match(m),
             Expr::Template(_) => Type::String,
             Expr::Assign(assign) => self.infer_assign(assign),
+            Expr::NullCoalesce(nc) => self.infer_null_coalesce(nc),
+            Expr::Range(r) => self.infer_range(r),
         }
+    }
+
+    fn infer_optional_member(&mut self, mem: &sag_parser::OptionalMemberExpr) -> Type {
+        let object_ty = self.infer_expr(&mem.object);
+        // Optional member returns optional of the property type
+        let prop_ty = match &object_ty {
+            Type::Named(_) | Type::Unknown | Type::Error => Type::Unknown,
+            Type::Record(_, value_ty) => (**value_ty).clone(),
+            Type::Optional(inner) => {
+                // Unwrap the optional and get property type
+                match inner.as_ref() {
+                    Type::Record(_, value_ty) => (**value_ty).clone(),
+                    _ => Type::Unknown,
+                }
+            }
+            _ => Type::Unknown,
+        };
+        Type::Optional(Box::new(prop_ty))
+    }
+
+    fn infer_optional_index(&mut self, idx: &sag_parser::OptionalIndexExpr) -> Type {
+        let obj_ty = self.infer_expr(&idx.object);
+        self.infer_expr(&idx.index);
+        // Optional index returns optional of the element type
+        let elem_ty = match obj_ty {
+            Type::Array(elem) => (*elem).clone(),
+            _ => Type::Unknown,
+        };
+        Type::Optional(Box::new(elem_ty))
+    }
+
+    fn infer_null_coalesce(&mut self, nc: &sag_parser::NullCoalesceExpr) -> Type {
+        let left_ty = self.infer_expr(&nc.left);
+        let right_ty = self.infer_expr(&nc.right);
+        // If left is optional<T>, result is T | right_ty
+        match left_ty {
+            Type::Optional(inner) => {
+                if inner.is_assignable_to(&right_ty) {
+                    right_ty
+                } else {
+                    (*inner).clone()
+                }
+            }
+            _ => left_ty,
+        }
+    }
+
+    fn infer_range(&mut self, r: &sag_parser::RangeExpr) -> Type {
+        if let Some(ref start) = r.start {
+            self.infer_expr(start);
+        }
+        if let Some(ref end) = r.end {
+            self.infer_expr(end);
+        }
+        // Range returns an iterator/array of numbers
+        Type::Array(Box::new(Type::Number))
     }
 
     fn infer_literal(&self, lit: &Literal) -> Type {
@@ -1272,24 +1425,18 @@ impl<'src> TypeChecker<'src> {
 
         for arm in &m.arms {
             // Check pattern (simple for now)
-            match &arm.pattern {
-                Pattern::Literal(lit) => {
-                    let lit_ty = self.infer_literal(lit);
-                    if !lit_ty.is_assignable_to(&subject_ty) {
-                        self.errors.push(TypeError::type_mismatch(
-                            &subject_ty.to_string(),
-                            &lit_ty.to_string(),
-                            self.source,
-                            arm.span,
-                        ));
-                    }
-                }
-                Pattern::Identifier(ident) => {
-                    // Binding pattern - introduces variable
-                    self.env.define(&ident.name, subject_ty.clone());
-                }
-                Pattern::Wildcard(_) => {
-                    // Wildcard matches anything
+            self.check_match_pattern(&arm.pattern, &subject_ty, arm.span);
+
+            // Check guard if present
+            if let Some(ref guard) = arm.guard {
+                let guard_ty = self.infer_expr(guard);
+                if !guard_ty.is_assignable_to(&Type::Boolean) {
+                    self.errors.push(TypeError::type_mismatch(
+                        "boolean",
+                        &guard_ty.to_string(),
+                        self.source,
+                        arm.span,
+                    ));
                 }
             }
 
@@ -1310,6 +1457,49 @@ impl<'src> TypeChecker<'src> {
         }
 
         result_ty.unwrap_or(Type::Unknown)
+    }
+
+    fn check_match_pattern(&mut self, pattern: &Pattern, subject_ty: &Type, span: Span) {
+        match pattern {
+            Pattern::Literal(lit) => {
+                let lit_ty = self.infer_literal(lit);
+                if !lit_ty.is_assignable_to(subject_ty) {
+                    self.errors.push(TypeError::type_mismatch(
+                        &subject_ty.to_string(),
+                        &lit_ty.to_string(),
+                        self.source,
+                        span,
+                    ));
+                }
+            }
+            Pattern::Identifier(ident) => {
+                // Binding pattern - introduces variable
+                self.env.define(&ident.name, subject_ty.clone());
+            }
+            Pattern::Wildcard(_) => {
+                // Wildcard matches anything
+            }
+            Pattern::Or(patterns) => {
+                // Check each pattern in the OR
+                for p in patterns {
+                    self.check_match_pattern(p, subject_ty, span);
+                }
+            }
+            Pattern::Object(obj) => {
+                // Object destructuring pattern - define fields
+                for field in &obj.fields {
+                    self.env.define(&field.key.name, Type::Unknown);
+                }
+            }
+            Pattern::Array(arr) => {
+                // Array destructuring pattern - define elements
+                for elem in &arr.elements {
+                    if let sag_parser::ArrayMatchElement::Pattern(Pattern::Identifier(ident)) = elem {
+                        self.env.define(&ident.name, Type::Unknown);
+                    }
+                }
+            }
+        }
     }
 
     fn infer_assign(&mut self, assign: &sag_parser::AssignExpr) -> Type {
@@ -1383,6 +1573,10 @@ impl<'src> TypeChecker<'src> {
             Expr::Match(m) => m.span,
             Expr::Template(t) => t.span,
             Expr::Assign(a) => a.span,
+            Expr::OptionalMember(m) => m.span,
+            Expr::OptionalIndex(i) => i.span,
+            Expr::NullCoalesce(n) => n.span,
+            Expr::Range(r) => r.span,
         }
     }
 }

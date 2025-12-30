@@ -178,6 +178,41 @@ impl TypeScriptGenerator {
                     self.generate_expr(&assign.value)
                 )
             }
+            Expr::OptionalMember(mem) => {
+                format!("{}?.{}", self.generate_expr(&mem.object), mem.property.name)
+            }
+            Expr::OptionalIndex(idx) => {
+                format!(
+                    "{}?.[{}]",
+                    self.generate_expr(&idx.object),
+                    self.generate_expr(&idx.index)
+                )
+            }
+            Expr::NullCoalesce(nc) => {
+                format!(
+                    "({} ?? {})",
+                    self.generate_expr(&nc.left),
+                    self.generate_expr(&nc.right)
+                )
+            }
+            Expr::Range(range) => {
+                // TypeScript doesn't have native range, generate a helper
+                let start = range
+                    .start
+                    .as_ref()
+                    .map(|e| self.generate_expr(e))
+                    .unwrap_or_else(|| "0".to_string());
+                let end = range
+                    .end
+                    .as_ref()
+                    .map(|e| self.generate_expr(e))
+                    .unwrap_or_else(|| "Infinity".to_string());
+                if range.inclusive {
+                    format!("Array.from({{ length: ({end}) - ({start}) + 1 }}, (_, i) => ({start}) + i)")
+                } else {
+                    format!("Array.from({{ length: ({end}) - ({start}) }}, (_, i) => ({start}) + i)")
+                }
+            }
         }
     }
 
@@ -190,9 +225,47 @@ impl TypeScriptGenerator {
         }
     }
 
+    fn generate_binding_pattern(&self, pattern: &BindingPattern) -> String {
+        match pattern {
+            BindingPattern::Identifier(ident) => ident.name.clone(),
+            BindingPattern::Object(obj) => {
+                let fields: Vec<_> = obj
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let key = &f.key.name;
+                        match &f.binding {
+                            Some(alias) => format!("{}: {}", key, self.generate_binding_pattern(alias)),
+                            None => key.clone(),
+                        }
+                    })
+                    .collect();
+                let rest = obj
+                    .rest
+                    .as_ref()
+                    .map(|r| format!(", ...{}", r.name))
+                    .unwrap_or_default();
+                format!("{{ {}{} }}", fields.join(", "), rest)
+            }
+            BindingPattern::Array(arr) => {
+                let elements: Vec<_> = arr
+                    .elements
+                    .iter()
+                    .map(|e| match e {
+                        ArrayPatternElement::Pattern(p) => self.generate_binding_pattern(p),
+                        ArrayPatternElement::Rest(ident) => format!("...{}", ident.name),
+                        ArrayPatternElement::Hole => ",".to_string(),
+                    })
+                    .collect();
+                format!("[{}]", elements.join(", "))
+            }
+        }
+    }
+
     fn generate_stmt(&mut self, stmt: &Stmt) -> String {
         match stmt {
             Stmt::Let(l) => {
+                let pattern = self.generate_binding_pattern(&l.pattern);
                 let ty =
                     l.ty.as_ref()
                         .map(|t| format!(": {}", self.generate_type(t)))
@@ -200,12 +273,13 @@ impl TypeScriptGenerator {
                 format!(
                     "{}const {}{} = {};",
                     self.indent(),
-                    l.name.name,
+                    pattern,
                     ty,
                     self.generate_expr(&l.value)
                 )
             }
             Stmt::Var(v) => {
+                let pattern = self.generate_binding_pattern(&v.pattern);
                 let ty =
                     v.ty.as_ref()
                         .map(|t| format!(": {}", self.generate_type(t)))
@@ -213,7 +287,7 @@ impl TypeScriptGenerator {
                 format!(
                     "{}let {}{} = {};",
                     self.indent(),
-                    v.name.name,
+                    pattern,
                     ty,
                     self.generate_expr(&v.value)
                 )
@@ -272,6 +346,24 @@ impl TypeScriptGenerator {
                 )
             }
             Stmt::Block(b) => self.generate_block(b),
+            Stmt::Try(t) => {
+                let mut result = format!("{}try {}", self.indent(), self.generate_block(&t.try_block));
+                if let Some(catch) = &t.catch {
+                    let param = catch
+                        .param
+                        .as_ref()
+                        .map(|p| format!(" ({})", p.name))
+                        .unwrap_or_default();
+                    result.push_str(&format!(" catch{} {}", param, self.generate_block(&catch.body)));
+                }
+                if let Some(finally) = &t.finally {
+                    result.push_str(&format!(" finally {}", self.generate_block(finally)));
+                }
+                result
+            }
+            Stmt::Throw(t) => {
+                format!("{}throw {};", self.indent(), self.generate_expr(&t.value))
+            }
         }
     }
 
@@ -297,43 +389,181 @@ impl TypeScriptGenerator {
         result
     }
 
+    fn generate_pattern_condition(&mut self, pattern: &Pattern) -> String {
+        match pattern {
+            Pattern::Wildcard(_) => "true".to_string(),
+            Pattern::Literal(lit) => {
+                format!("__match_subject__ === {}", self.generate_literal(lit))
+            }
+            Pattern::Identifier(_) => "true".to_string(),
+            Pattern::Or(patterns) => {
+                let conditions: Vec<_> = patterns
+                    .iter()
+                    .map(|p| self.generate_pattern_condition(p))
+                    .collect();
+                format!("({})", conditions.join(" || "))
+            }
+            Pattern::Object(obj) => {
+                let mut conditions = vec![];
+                for field in &obj.fields {
+                    let key = &field.key.name;
+                    match &field.pattern {
+                        Some(p) => {
+                            // Save subject and check nested
+                            let inner = self.generate_pattern_condition(p);
+                            if inner != "true" {
+                                conditions.push(format!(
+                                    "((__temp_{key} = __match_subject__.{key}), {inner})",
+                                ));
+                            }
+                        }
+                        None => {
+                            // Just check property exists
+                            conditions.push(format!("'{key}' in __match_subject__"));
+                        }
+                    }
+                }
+                if conditions.is_empty() {
+                    "true".to_string()
+                } else {
+                    conditions.join(" && ")
+                }
+            }
+            Pattern::Array(arr) => {
+                let mut conditions = vec![format!(
+                    "Array.isArray(__match_subject__) && __match_subject__.length >= {}",
+                    arr.elements.len()
+                )];
+                for (i, elem) in arr.elements.iter().enumerate() {
+                    match elem {
+                        ArrayMatchElement::Pattern(p) => {
+                            let inner = self.generate_pattern_condition(p);
+                            if inner != "true" {
+                                conditions.push(format!(
+                                    "((__temp_{i} = __match_subject__[{i}]), {inner})"
+                                ));
+                            }
+                        }
+                        ArrayMatchElement::Rest(_) => {
+                            // Rest pattern always matches
+                        }
+                    }
+                }
+                conditions.join(" && ")
+            }
+        }
+    }
+
+    fn generate_pattern_bindings(&mut self, pattern: &Pattern) -> Vec<String> {
+        match pattern {
+            Pattern::Wildcard(_) | Pattern::Literal(_) => vec![],
+            Pattern::Identifier(ident) => {
+                vec![format!("const {} = __match_subject__;", ident.name)]
+            }
+            Pattern::Or(patterns) => {
+                // For OR patterns, bindings from first matching pattern apply
+                // In TypeScript, we can only guarantee bindings if all branches have the same ones
+                if let Some(first) = patterns.first() {
+                    self.generate_pattern_bindings(first)
+                } else {
+                    vec![]
+                }
+            }
+            Pattern::Object(obj) => {
+                let mut bindings = vec![];
+                for field in &obj.fields {
+                    let key = &field.key.name;
+                    match &field.pattern {
+                        Some(p) => {
+                            if let Pattern::Identifier(ident) = p {
+                                bindings.push(format!(
+                                    "const {} = __match_subject__.{};",
+                                    ident.name, key
+                                ));
+                            }
+                        }
+                        None => {
+                            bindings.push(format!(
+                                "const {key} = __match_subject__.{key};"
+                            ));
+                        }
+                    }
+                }
+                // rest is a bool indicating if ... was present, but we don't have a name to bind to
+                // For now, we just destructure the known fields
+                bindings
+            }
+            Pattern::Array(arr) => {
+                let mut bindings = vec![];
+                for (i, elem) in arr.elements.iter().enumerate() {
+                    match elem {
+                        ArrayMatchElement::Pattern(p) => {
+                            if let Pattern::Identifier(ident) = p {
+                                bindings.push(format!(
+                                    "const {} = __match_subject__[{}];",
+                                    ident.name, i
+                                ));
+                            }
+                        }
+                        ArrayMatchElement::Rest(opt_ident) => {
+                            if let Some(ident) = opt_ident {
+                                bindings.push(format!(
+                                    "const {} = __match_subject__.slice({});",
+                                    ident.name, i
+                                ));
+                            }
+                        }
+                    }
+                }
+                bindings
+            }
+        }
+    }
+
     fn generate_match_expr(&mut self, m: &MatchExpr) -> String {
-        // Generate match as an IIFE with if/else chain
         let subject = self.generate_expr(&m.subject);
         let mut result = "((__match_subject__) => {\n".to_string();
 
         let mut first = true;
         for arm in &m.arms {
             let body = self.generate_expr(&arm.body);
-            match &arm.pattern {
-                Pattern::Wildcard(_) => {
-                    // Default case - must be last
-                    if first {
-                        result.push_str(&format!("    return {body};\n"));
-                    } else {
-                        result.push_str(&format!("    else {{\n      return {body};\n    }}\n"));
-                    }
+            let condition = self.generate_pattern_condition(&arm.pattern);
+            let bindings = self.generate_pattern_bindings(&arm.pattern);
+
+            // Add guard if present
+            let full_condition = if let Some(guard) = &arm.guard {
+                let guard_expr = self.generate_expr(guard);
+                if condition == "true" {
+                    guard_expr
+                } else {
+                    format!("({condition}) && ({guard_expr})")
                 }
-                Pattern::Literal(lit) => {
-                    let pattern_val = self.generate_literal(lit);
-                    if first {
-                        result.push_str(&format!(
-                            "    if (__match_subject__ === {pattern_val}) {{\n      return {body};\n    }}\n"
-                        ));
-                        first = false;
-                    } else {
-                        result.push_str(&format!(
-                            "    else if (__match_subject__ === {pattern_val}) {{\n      return {body};\n    }}\n"
-                        ));
-                    }
+            } else {
+                condition
+            };
+
+            let bindings_code = if bindings.is_empty() {
+                String::new()
+            } else {
+                format!("{}\n      ", bindings.join("\n      "))
+            };
+
+            if full_condition == "true" {
+                // Unconditional match (wildcard or binding without guard)
+                if first {
+                    result.push_str(&format!("    {bindings_code}return {body};\n"));
+                } else {
+                    result.push_str(&format!("    else {{\n      {bindings_code}return {body};\n    }}\n"));
                 }
-                Pattern::Identifier(ident) => {
-                    // Binding pattern - binds the value and always matches
-                    result.push_str(&format!(
-                        "    else {{\n      const {} = __match_subject__;\n      return {};\n    }}\n",
-                        ident.name, body
-                    ));
-                }
+            } else if first {
+                result.push_str(&format!(
+                    "    if ({full_condition}) {{\n      {bindings_code}return {body};\n    }}\n"
+                ));
+                first = false;
+            } else {
+                result.push_str(&format!(
+                    "    else if ({full_condition}) {{\n      {bindings_code}return {body};\n    }}\n"
+                ));
             }
         }
 

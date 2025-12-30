@@ -190,12 +190,14 @@ pub enum Stmt {
     Return(ReturnStmt),
     Emit(EmitStmt),
     Block(Block),
+    Try(TryStmt),
+    Throw(ThrowStmt),
 }
 
 /// Let binding (immutable).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LetStmt {
-    pub name: Identifier,
+    pub pattern: BindingPattern,
     pub ty: Option<TypeExpr>,
     pub value: Expr,
     pub span: Span,
@@ -204,8 +206,79 @@ pub struct LetStmt {
 /// Var binding (mutable).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarStmt {
-    pub name: Identifier,
+    pub pattern: BindingPattern,
     pub ty: Option<TypeExpr>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+/// Binding pattern for let/var.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BindingPattern {
+    /// Simple identifier binding.
+    Identifier(Identifier),
+    /// Object destructuring: `{ a, b: renamed, c = default }`.
+    Object(ObjectPattern),
+    /// Array destructuring: `[a, b, ...rest]`.
+    Array(ArrayPattern),
+}
+
+/// Object destructuring pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectPattern {
+    pub fields: Vec<ObjectPatternField>,
+    pub rest: Option<Identifier>,
+    pub span: Span,
+}
+
+/// Field in object destructuring.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectPatternField {
+    pub key: Identifier,
+    pub binding: Option<BindingPattern>,
+    pub default: Option<Expr>,
+    pub span: Span,
+}
+
+/// Array destructuring pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayPattern {
+    pub elements: Vec<ArrayPatternElement>,
+    pub span: Span,
+}
+
+/// Element in array destructuring.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayPatternElement {
+    /// Regular binding.
+    Pattern(BindingPattern),
+    /// Rest element (`...rest`).
+    Rest(Identifier),
+    /// Hole (skipped element).
+    Hole,
+}
+
+/// Try-catch-finally statement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TryStmt {
+    pub try_block: Block,
+    pub catch: Option<CatchClause>,
+    pub finally: Option<Block>,
+    pub span: Span,
+}
+
+/// Catch clause.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchClause {
+    pub param: Option<Identifier>,
+    pub param_type: Option<TypeExpr>,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// Throw statement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThrowStmt {
     pub value: Expr,
     pub span: Span,
 }
@@ -274,7 +347,9 @@ pub enum Expr {
     Unary(UnaryExpr),
     Call(CallExpr),
     Member(MemberExpr),
+    OptionalMember(OptionalMemberExpr),
     Index(IndexExpr),
+    OptionalIndex(OptionalIndexExpr),
     Array(ArrayExpr),
     Record(RecordExpr),
     Await(AwaitExpr),
@@ -282,6 +357,8 @@ pub enum Expr {
     Match(MatchExpr),
     Template(TemplateExpr),
     Assign(AssignExpr),
+    NullCoalesce(NullCoalesceExpr),
+    Range(RangeExpr),
 }
 
 /// Binary expression.
@@ -375,9 +452,25 @@ pub struct MemberExpr {
     pub span: Span,
 }
 
+/// Optional member access expression (a?.b).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptionalMemberExpr {
+    pub object: Box<Expr>,
+    pub property: Identifier,
+    pub span: Span,
+}
+
 /// Index access expression (`a[b]`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexExpr {
+    pub object: Box<Expr>,
+    pub index: Box<Expr>,
+    pub span: Span,
+}
+
+/// Optional index access expression (`a?.[b]`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptionalIndexExpr {
     pub object: Box<Expr>,
     pub index: Box<Expr>,
     pub span: Span,
@@ -431,6 +524,7 @@ pub struct MatchExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
+    pub guard: Option<Box<Expr>>,
     pub body: Expr,
     pub span: Span,
 }
@@ -438,9 +532,48 @@ pub struct MatchArm {
 /// Pattern for match expressions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
+    /// Literal pattern (string, number, boolean).
     Literal(Literal),
+    /// Identifier pattern (binds the value).
     Identifier(Identifier),
+    /// Wildcard pattern (_).
     Wildcard(Span),
+    /// OR pattern (a | b | c).
+    Or(Vec<Pattern>),
+    /// Object destructuring pattern ({ a, b }).
+    Object(ObjectMatchPattern),
+    /// Array destructuring pattern ([a, b]).
+    Array(ArrayMatchPattern),
+}
+
+/// Object pattern for match expressions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectMatchPattern {
+    pub fields: Vec<ObjectMatchField>,
+    pub rest: bool,
+    pub span: Span,
+}
+
+/// Field in object match pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectMatchField {
+    pub key: Identifier,
+    pub pattern: Option<Pattern>,
+    pub span: Span,
+}
+
+/// Array pattern for match expressions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayMatchPattern {
+    pub elements: Vec<ArrayMatchElement>,
+    pub span: Span,
+}
+
+/// Element in array match pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayMatchElement {
+    Pattern(Pattern),
+    Rest(Option<Identifier>),
 }
 
 /// Template string expression.
@@ -462,6 +595,23 @@ pub enum TemplatePart {
 pub struct AssignExpr {
     pub target: Box<Expr>,
     pub value: Box<Expr>,
+    pub span: Span,
+}
+
+/// Null coalescing expression (a ?? b).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NullCoalesceExpr {
+    pub left: Box<Expr>,
+    pub right: Box<Expr>,
+    pub span: Span,
+}
+
+/// Range expression (start..end or start..=end).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RangeExpr {
+    pub start: Option<Box<Expr>>,
+    pub end: Option<Box<Expr>>,
+    pub inclusive: bool,
     pub span: Span,
 }
 

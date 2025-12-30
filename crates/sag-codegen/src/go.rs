@@ -204,6 +204,69 @@ impl GoGenerator {
                     self.generate_expr(&assign.value)
                 )
             }
+            Expr::OptionalMember(m) => {
+                // Go doesn't have optional chaining - needs nil check
+                let obj = self.generate_expr(&m.object);
+                format!(
+                    "func() interface{{}} {{ if {obj} != nil {{ return {obj}.{} }} else {{ return nil }} }}()",
+                    m.property.name
+                )
+            }
+            Expr::OptionalIndex(i) => {
+                let obj = self.generate_expr(&i.object);
+                let idx = self.generate_expr(&i.index);
+                format!(
+                    "func() interface{{}} {{ if {obj} != nil {{ return {obj}[{idx}] }} else {{ return nil }} }}()"
+                )
+            }
+            Expr::NullCoalesce(nc) => {
+                let left = self.generate_expr(&nc.left);
+                let right = self.generate_expr(&nc.right);
+                format!(
+                    "func() interface{{}} {{ if {left} != nil {{ return {left} }} else {{ return {right} }} }}()"
+                )
+            }
+            Expr::Range(range) => {
+                // Go doesn't have range literals - generate a slice
+                let start = range
+                    .start
+                    .as_ref()
+                    .map(|e| self.generate_expr(e))
+                    .unwrap_or_else(|| "0".to_string());
+                let end = range
+                    .end
+                    .as_ref()
+                    .map(|e| self.generate_expr(e))
+                    .unwrap_or_else(|| "0".to_string());
+                if range.inclusive {
+                    format!("func() []int {{ r := make([]int, 0); for i := {start}; i <= {end}; i++ {{ r = append(r, i) }}; return r }}()")
+                } else {
+                    format!("func() []int {{ r := make([]int, 0); for i := {start}; i < {end}; i++ {{ r = append(r, i) }}; return r }}()")
+                }
+            }
+        }
+    }
+
+    fn generate_binding_pattern(&self, pattern: &BindingPattern) -> String {
+        match pattern {
+            BindingPattern::Identifier(ident) => ident.name.clone(),
+            BindingPattern::Object(_) => {
+                // Go doesn't support object destructuring - just return a placeholder
+                "_".to_string()
+            }
+            BindingPattern::Array(arr) => {
+                // Go supports multiple assignment but not full destructuring
+                let elements: Vec<_> = arr
+                    .elements
+                    .iter()
+                    .map(|e| match e {
+                        ArrayPatternElement::Pattern(p) => self.generate_binding_pattern(p),
+                        ArrayPatternElement::Rest(_) => "_".to_string(),
+                        ArrayPatternElement::Hole => "_".to_string(),
+                    })
+                    .collect();
+                elements.join(", ")
+            }
         }
     }
 
@@ -219,14 +282,16 @@ impl GoGenerator {
     fn generate_stmt(&mut self, stmt: &Stmt) -> String {
         match stmt {
             Stmt::Let(l) => {
+                let pattern = self.generate_binding_pattern(&l.pattern);
                 format!(
                     "{}{} := {}",
                     self.indent(),
-                    l.name.name,
+                    pattern,
                     self.generate_expr(&l.value)
                 )
             }
             Stmt::Var(v) => {
+                let pattern = self.generate_binding_pattern(&v.pattern);
                 let ty =
                     v.ty.as_ref()
                         .map(|t| format!(" {}", self.generate_type(t)))
@@ -234,7 +299,7 @@ impl GoGenerator {
                 format!(
                     "{}var {}{}= {}",
                     self.indent(),
-                    v.name.name,
+                    pattern,
                     ty,
                     self.generate_expr(&v.value)
                 )
@@ -290,6 +355,44 @@ impl GoGenerator {
                 )
             }
             Stmt::Block(b) => self.generate_block(b),
+            Stmt::Try(t) => {
+                // Go uses defer/recover pattern for error handling
+                let mut result = format!("{}func() {{\n", self.indent());
+                self.indent += 1;
+                if t.catch.is_some() {
+                    result.push_str(&format!(
+                        "{}defer func() {{\n{}if r := recover(); r != nil {{\n",
+                        self.indent(),
+                        "\t".repeat(self.indent + 1)
+                    ));
+                    if let Some(catch) = &t.catch {
+                        if let Some(param) = &catch.param {
+                            result.push_str(&format!(
+                                "{}{} := r\n",
+                                "\t".repeat(self.indent + 2),
+                                param.name
+                            ));
+                        }
+                        self.indent += 2;
+                        for stmt in &catch.body.stmts {
+                            result.push_str(&self.generate_stmt(stmt));
+                            result.push('\n');
+                        }
+                        self.indent -= 2;
+                    }
+                    result.push_str(&format!("{}}}\n{}}}()\n", "\t".repeat(self.indent + 1), self.indent()));
+                }
+                for stmt in &t.try_block.stmts {
+                    result.push_str(&self.generate_stmt(stmt));
+                    result.push('\n');
+                }
+                self.indent -= 1;
+                result.push_str(&format!("{}}}()", self.indent()));
+                result
+            }
+            Stmt::Throw(t) => {
+                format!("{}panic({})", self.indent(), self.generate_expr(&t.value))
+            }
         }
     }
 
@@ -315,33 +418,74 @@ impl GoGenerator {
         result
     }
 
-    fn generate_match_expr(&mut self, m: &MatchExpr) -> String {
-        // Go doesn't have match expressions, generate as an immediately invoked function
-        // with a switch statement
-        let subject = self.generate_expr(&m.subject);
-        let mut result = format!("func() interface{{}} {{\n\t\tswitch __match_subject__ := {subject}; __match_subject__ {{\n");
+    fn generate_pattern_cases(&mut self, pattern: &Pattern) -> Vec<String> {
+        match pattern {
+            Pattern::Literal(lit) => vec![self.generate_literal(lit)],
+            Pattern::Or(patterns) => {
+                patterns.iter().flat_map(|p| self.generate_pattern_cases(p)).collect()
+            }
+            _ => vec![],
+        }
+    }
 
+    fn generate_match_expr(&mut self, m: &MatchExpr) -> String {
+        let subject = self.generate_expr(&m.subject);
+        let mut result = format!("func() interface{{}} {{\n\t\t__match_subject__ := {subject}\n");
+
+        let mut first = true;
         for arm in &m.arms {
             let body = self.generate_expr(&arm.body);
+
+            // Generate guard condition if present
+            let guard_cond = arm.guard.as_ref().map(|g| self.generate_expr(g));
+
             match &arm.pattern {
                 Pattern::Wildcard(_) => {
-                    result.push_str(&format!("\t\tdefault:\n\t\t\treturn {body}\n"));
+                    if let Some(guard) = guard_cond {
+                        result.push_str(&format!("\t\tif {guard} {{\n\t\t\treturn {body}\n\t\t}}\n"));
+                    } else {
+                        result.push_str(&format!("\t\treturn {body}\n"));
+                    }
                 }
-                Pattern::Literal(lit) => {
-                    let pattern_val = self.generate_literal(lit);
-                    result.push_str(&format!("\t\tcase {pattern_val}:\n\t\t\treturn {body}\n"));
+                Pattern::Literal(_) | Pattern::Or(_) => {
+                    let cases = self.generate_pattern_cases(&arm.pattern);
+                    let case_conditions: Vec<_> = cases.iter().map(|c| format!("__match_subject__ == {c}")).collect();
+                    let pattern_cond = case_conditions.join(" || ");
+
+                    let full_cond = if let Some(guard) = guard_cond {
+                        format!("({pattern_cond}) && ({guard})")
+                    } else {
+                        pattern_cond
+                    };
+
+                    if first {
+                        result.push_str(&format!("\t\tif {full_cond} {{\n\t\t\treturn {body}\n\t\t}}"));
+                        first = false;
+                    } else {
+                        result.push_str(&format!(" else if {full_cond} {{\n\t\t\treturn {body}\n\t\t}}"));
+                    }
                 }
                 Pattern::Identifier(ident) => {
-                    // Binding pattern - bind the value and return
-                    result.push_str(&format!(
-                        "\t\tdefault:\n\t\t\t{} := __match_subject__\n\t\t\treturn {}\n",
-                        ident.name, body
-                    ));
+                    if let Some(guard) = guard_cond {
+                        result.push_str(&format!(
+                            " else if func() bool {{ {} := __match_subject__; return {} }}() {{\n\t\t\t{} := __match_subject__\n\t\t\treturn {}\n\t\t}}",
+                            ident.name, guard, ident.name, body
+                        ));
+                    } else {
+                        result.push_str(&format!(
+                            " else {{\n\t\t\t{} := __match_subject__\n\t\t\treturn {}\n\t\t}}",
+                            ident.name, body
+                        ));
+                    }
+                }
+                Pattern::Object(_) | Pattern::Array(_) => {
+                    // Complex patterns - just add as else clause
+                    result.push_str(&format!(" else {{\n\t\t\treturn {body}\n\t\t}}"));
                 }
             }
         }
 
-        result.push_str("\t\t}\n\t\treturn nil\n\t}()");
+        result.push_str("\n\t\treturn nil\n\t}()");
         result
     }
 

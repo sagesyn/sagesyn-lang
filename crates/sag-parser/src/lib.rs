@@ -768,6 +768,8 @@ impl<'src> Parser<'src> {
             Some(Token::While) => Ok(Stmt::While(self.parse_while_stmt()?)),
             Some(Token::Return) => Ok(Stmt::Return(self.parse_return_stmt()?)),
             Some(Token::Emit) => Ok(Stmt::Emit(self.parse_emit_stmt()?)),
+            Some(Token::Try) => Ok(Stmt::Try(self.parse_try_stmt()?)),
+            Some(Token::Throw) => Ok(Stmt::Throw(self.parse_throw_stmt()?)),
             Some(Token::LBrace) => Ok(Stmt::Block(self.parse_block()?)),
             _ => Ok(Stmt::Expr(self.parse_expr_stmt()?)),
         }
@@ -775,7 +777,7 @@ impl<'src> Parser<'src> {
 
     fn parse_let_stmt(&mut self) -> Result<LetStmt, ParseError> {
         let start_span = self.expect(Token::Let)?;
-        let name = self.parse_identifier()?;
+        let pattern = self.parse_binding_pattern()?;
 
         let ty = if self.check(&Token::Colon) {
             self.advance();
@@ -788,7 +790,7 @@ impl<'src> Parser<'src> {
         let value = self.parse_expr()?;
 
         Ok(LetStmt {
-            name,
+            pattern,
             ty,
             value,
             span: Span::new(
@@ -803,7 +805,7 @@ impl<'src> Parser<'src> {
 
     fn parse_var_stmt(&mut self) -> Result<VarStmt, ParseError> {
         let start_span = self.expect(Token::Var)?;
-        let name = self.parse_identifier()?;
+        let pattern = self.parse_binding_pattern()?;
 
         let ty = if self.check(&Token::Colon) {
             self.advance();
@@ -816,7 +818,7 @@ impl<'src> Parser<'src> {
         let value = self.parse_expr()?;
 
         Ok(VarStmt {
-            name,
+            pattern,
             ty,
             value,
             span: Span::new(
@@ -826,6 +828,185 @@ impl<'src> Parser<'src> {
                     .map(|t| t.span.end)
                     .unwrap_or(start_span.end),
             ),
+        })
+    }
+
+    fn parse_binding_pattern(&mut self) -> Result<BindingPattern, ParseError> {
+        match self.peek_token() {
+            Some(Token::LBrace) => {
+                let obj_pat = self.parse_object_pattern()?;
+                Ok(BindingPattern::Object(obj_pat))
+            }
+            Some(Token::LBracket) => {
+                let arr_pat = self.parse_array_pattern()?;
+                Ok(BindingPattern::Array(arr_pat))
+            }
+            _ => {
+                let ident = self.parse_identifier()?;
+                Ok(BindingPattern::Identifier(ident))
+            }
+        }
+    }
+
+    fn parse_object_pattern(&mut self) -> Result<ObjectPattern, ParseError> {
+        let start_span = self.expect(Token::LBrace)?;
+        let mut fields = Vec::new();
+        let mut rest = None;
+
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            // Check for rest pattern
+            if self.check(&Token::DotDotDot) {
+                self.advance();
+                rest = Some(self.parse_identifier()?);
+                break;
+            }
+
+            let key = self.parse_identifier()?;
+            let field_start = key.span;
+
+            // Check for : renamed or : nested pattern
+            let binding = if self.check(&Token::Colon) {
+                self.advance();
+                Some(self.parse_binding_pattern()?)
+            } else {
+                None
+            };
+
+            // Check for = default value
+            let default = if self.check(&Token::Eq) {
+                self.advance();
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+
+            let field_end = self.tokens
+                .get(self.pos.saturating_sub(1))
+                .map(|t| t.span.end)
+                .unwrap_or(field_start.end);
+
+            fields.push(ObjectPatternField {
+                key,
+                binding,
+                default,
+                span: Span::new(field_start.start, field_end),
+            });
+
+            if !self.check(&Token::RBrace) {
+                self.expect(Token::Comma)?;
+            }
+        }
+
+        let end_span = self.expect(Token::RBrace)?;
+        Ok(ObjectPattern {
+            fields,
+            rest,
+            span: Span::new(start_span.start, end_span.end),
+        })
+    }
+
+    fn parse_array_pattern(&mut self) -> Result<ArrayPattern, ParseError> {
+        let start_span = self.expect(Token::LBracket)?;
+        let mut elements = Vec::new();
+
+        while !self.check(&Token::RBracket) && !self.is_at_end() {
+            // Check for rest pattern
+            if self.check(&Token::DotDotDot) {
+                self.advance();
+                let ident = self.parse_identifier()?;
+                elements.push(ArrayPatternElement::Rest(ident));
+                break;
+            }
+
+            // Check for hole (comma with no value)
+            if self.check(&Token::Comma) {
+                elements.push(ArrayPatternElement::Hole);
+            } else {
+                let pattern = self.parse_binding_pattern()?;
+                elements.push(ArrayPatternElement::Pattern(pattern));
+            }
+
+            if !self.check(&Token::RBracket) {
+                self.expect(Token::Comma)?;
+            }
+        }
+
+        let end_span = self.expect(Token::RBracket)?;
+        Ok(ArrayPattern {
+            elements,
+            span: Span::new(start_span.start, end_span.end),
+        })
+    }
+
+    fn parse_try_stmt(&mut self) -> Result<TryStmt, ParseError> {
+        let start_span = self.expect(Token::Try)?;
+        let try_block = self.parse_block()?;
+
+        let catch = if self.check(&Token::Catch) {
+            self.advance();
+            let (param, param_type) = if self.check(&Token::LParen) {
+                self.advance();
+                let p = self.parse_identifier()?;
+                let pt = if self.check(&Token::Colon) {
+                    self.advance();
+                    Some(self.parse_type_expr()?)
+                } else {
+                    None
+                };
+                self.expect(Token::RParen)?;
+                (Some(p), pt)
+            } else {
+                (None, None)
+            };
+            let catch_start = self.tokens
+                .get(self.pos.saturating_sub(1))
+                .map(|t| t.span.start)
+                .unwrap_or(start_span.start);
+            let body = self.parse_block()?;
+            Some(CatchClause {
+                param,
+                param_type,
+                body,
+                span: Span::new(catch_start, self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(catch_start)),
+            })
+        } else {
+            None
+        };
+
+        let finally = if self.check(&Token::Finally) {
+            self.advance();
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        let end_pos = self.tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start_span.end);
+
+        Ok(TryStmt {
+            try_block,
+            catch,
+            finally,
+            span: Span::new(start_span.start, end_pos),
+        })
+    }
+
+    fn parse_throw_stmt(&mut self) -> Result<ThrowStmt, ParseError> {
+        let start_span = self.expect(Token::Throw)?;
+        let value = self.parse_expr()?;
+        let end_pos = self.tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start_span.end);
+
+        Ok(ThrowStmt {
+            value,
+            span: Span::new(start_span.start, end_pos),
         })
     }
 
@@ -957,12 +1138,22 @@ impl<'src> Parser<'src> {
 
     fn parse_match_arm(&mut self) -> Result<MatchArm, ParseError> {
         let start = self.current_span();
-        let pattern = self.parse_pattern()?;
+        let pattern = self.parse_or_pattern()?;
+
+        // Check for guard: `if condition`
+        let guard = if self.check(&Token::If) {
+            self.advance();
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+
         self.expect(Token::FatArrow)?;
         let body = self.parse_expr()?;
 
         Ok(MatchArm {
             pattern,
+            guard,
             body,
             span: Span::new(
                 start.start,
@@ -974,7 +1165,23 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+    fn parse_or_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let first = self.parse_single_pattern()?;
+
+        // Check for OR patterns (pattern | pattern | ...)
+        if self.check(&Token::Pipe) {
+            let mut patterns = vec![first];
+            while self.check(&Token::Pipe) {
+                self.advance();
+                patterns.push(self.parse_single_pattern()?);
+            }
+            Ok(Pattern::Or(patterns))
+        } else {
+            Ok(first)
+        }
+    }
+
+    fn parse_single_pattern(&mut self) -> Result<Pattern, ParseError> {
         match self.peek_token().cloned() {
             Some(Token::StringLiteral(s)) => {
                 let span = self.current_span();
@@ -1006,6 +1213,12 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(Pattern::Wildcard(span))
             }
+            Some(Token::LBrace) => {
+                self.parse_object_match_pattern()
+            }
+            Some(Token::LBracket) => {
+                self.parse_array_match_pattern()
+            }
             Some(Token::Identifier(_)) => {
                 let ident = self.parse_identifier()?;
                 Ok(Pattern::Identifier(ident))
@@ -1022,12 +1235,92 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn parse_object_match_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let start_span = self.expect(Token::LBrace)?;
+        let mut fields = Vec::new();
+        let mut rest = false;
+
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            // Check for rest pattern
+            if self.check(&Token::DotDotDot) {
+                self.advance();
+                rest = true;
+                break;
+            }
+
+            let key = self.parse_identifier()?;
+            let field_start = key.span;
+
+            // Check for : nested pattern
+            let pattern = if self.check(&Token::Colon) {
+                self.advance();
+                Some(self.parse_or_pattern()?)
+            } else {
+                None
+            };
+
+            let field_end = self.tokens
+                .get(self.pos.saturating_sub(1))
+                .map(|t| t.span.end)
+                .unwrap_or(field_start.end);
+
+            fields.push(ObjectMatchField {
+                key,
+                pattern,
+                span: Span::new(field_start.start, field_end),
+            });
+
+            if !self.check(&Token::RBrace) {
+                self.expect(Token::Comma)?;
+            }
+        }
+
+        let end_span = self.expect(Token::RBrace)?;
+        Ok(Pattern::Object(ObjectMatchPattern {
+            fields,
+            rest,
+            span: Span::new(start_span.start, end_span.end),
+        }))
+    }
+
+    fn parse_array_match_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let start_span = self.expect(Token::LBracket)?;
+        let mut elements = Vec::new();
+
+        while !self.check(&Token::RBracket) && !self.is_at_end() {
+            // Check for rest pattern
+            if self.check(&Token::DotDotDot) {
+                self.advance();
+                let ident = if matches!(self.peek_token(), Some(Token::Identifier(_))) {
+                    Some(self.parse_identifier()?)
+                } else {
+                    None
+                };
+                elements.push(ArrayMatchElement::Rest(ident));
+                break;
+            }
+
+            let pattern = self.parse_or_pattern()?;
+            elements.push(ArrayMatchElement::Pattern(pattern));
+
+            if !self.check(&Token::RBracket) {
+                self.expect(Token::Comma)?;
+            }
+        }
+
+        let end_span = self.expect(Token::RBracket)?;
+        Ok(Pattern::Array(ArrayMatchPattern {
+            elements,
+            span: Span::new(start_span.start, end_span.end),
+        }))
+    }
+
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
         self.parse_assignment()
     }
 
     fn parse_assignment(&mut self) -> Result<Expr, ParseError> {
-        let expr = self.parse_or()?;
+        let expr = self.parse_null_coalesce()?;
 
         if self.check(&Token::Eq) {
             self.advance();
@@ -1041,6 +1334,23 @@ impl<'src> Parser<'src> {
         }
 
         Ok(expr)
+    }
+
+    fn parse_null_coalesce(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_or()?;
+
+        while self.check(&Token::QuestionQuestion) {
+            self.advance();
+            let right = self.parse_or()?;
+            let span = Span::new(self.expr_span(&left).start, self.expr_span(&right).end);
+            left = Expr::NullCoalesce(NullCoalesceExpr {
+                left: Box::new(left),
+                right: Box::new(right),
+                span,
+            });
+        }
+
+        Ok(left)
     }
 
     fn parse_or(&mut self) -> Result<Expr, ParseError> {
@@ -1102,7 +1412,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_term()?;
+        let mut left = self.parse_range()?;
 
         while let Some(op) = match self.peek_token() {
             Some(Token::LAngle) => Some(BinaryOp::Lt),
@@ -1112,7 +1422,7 @@ impl<'src> Parser<'src> {
             _ => None,
         } {
             self.advance();
-            let right = self.parse_term()?;
+            let right = self.parse_range()?;
             let span = Span::new(self.expr_span(&left).start, self.expr_span(&right).end);
             left = Expr::Binary(BinaryExpr {
                 left: Box::new(left),
@@ -1123,6 +1433,71 @@ impl<'src> Parser<'src> {
         }
 
         Ok(left)
+    }
+
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let start_span = self.current_span();
+
+        // Check for prefix range: ..end or ..=end
+        if self.check(&Token::DotDot) || self.check(&Token::DotDotEq) {
+            let inclusive = self.check(&Token::DotDotEq);
+            self.advance();
+            let end = self.parse_term()?;
+            let span = Span::new(start_span.start, self.expr_span(&end).end);
+            return Ok(Expr::Range(RangeExpr {
+                start: None,
+                end: Some(Box::new(end)),
+                inclusive,
+                span,
+            }));
+        }
+
+        let left = self.parse_term()?;
+
+        // Check for range: start..end or start..=end or start..
+        if self.check(&Token::DotDot) || self.check(&Token::DotDotEq) {
+            let inclusive = self.check(&Token::DotDotEq);
+            self.advance();
+
+            // Check if there's an end expression
+            let end = if !self.is_range_end() {
+                Some(Box::new(self.parse_term()?))
+            } else {
+                None
+            };
+
+            let end_pos = end.as_ref()
+                .map(|e| self.expr_span(e).end)
+                .unwrap_or_else(|| self.tokens
+                    .get(self.pos.saturating_sub(1))
+                    .map(|t| t.span.end)
+                    .unwrap_or(start_span.end));
+
+            let left_start = self.expr_span(&left).start;
+            return Ok(Expr::Range(RangeExpr {
+                start: Some(Box::new(left)),
+                end,
+                inclusive,
+                span: Span::new(left_start, end_pos),
+            }));
+        }
+
+        Ok(left)
+    }
+
+    // Helper to check if we're at a position where range should end
+    fn is_range_end(&self) -> bool {
+        matches!(
+            self.peek_token(),
+            None
+            | Some(Token::RParen)
+            | Some(Token::RBracket)
+            | Some(Token::RBrace)
+            | Some(Token::Comma)
+            | Some(Token::Semicolon)
+            | Some(Token::FatArrow)
+            | Some(Token::LBrace)
+        )
     }
 
     fn parse_term(&mut self) -> Result<Expr, ParseError> {
@@ -1213,6 +1588,30 @@ impl<'src> Parser<'src> {
                     args,
                     span,
                 });
+            } else if self.check(&Token::QuestionDot) {
+                // Optional chaining: a?.b or a?.[index]
+                self.advance();
+                if self.check(&Token::LBracket) {
+                    // Optional index: a?.[index]
+                    self.advance();
+                    let index = self.parse_expr()?;
+                    let end = self.expect(Token::RBracket)?;
+                    let span = Span::new(self.expr_span(&expr).start, end.end);
+                    expr = Expr::OptionalIndex(OptionalIndexExpr {
+                        object: Box::new(expr),
+                        index: Box::new(index),
+                        span,
+                    });
+                } else {
+                    // Optional member: a?.b
+                    let property = self.parse_identifier()?;
+                    let span = Span::new(self.expr_span(&expr).start, property.span.end);
+                    expr = Expr::OptionalMember(OptionalMemberExpr {
+                        object: Box::new(expr),
+                        property,
+                        span,
+                    });
+                }
             } else if self.check(&Token::Dot) {
                 self.advance();
                 let property = self.parse_identifier()?;
@@ -1841,7 +2240,9 @@ impl<'src> Parser<'src> {
             Expr::Unary(u) => u.span,
             Expr::Call(c) => c.span,
             Expr::Member(m) => m.span,
+            Expr::OptionalMember(m) => m.span,
             Expr::Index(i) => i.span,
+            Expr::OptionalIndex(i) => i.span,
             Expr::Array(a) => a.span,
             Expr::Record(r) => r.span,
             Expr::Await(a) => a.span,
@@ -1849,6 +2250,8 @@ impl<'src> Parser<'src> {
             Expr::Match(m) => m.span,
             Expr::Template(t) => t.span,
             Expr::Assign(a) => a.span,
+            Expr::NullCoalesce(n) => n.span,
+            Expr::Range(r) => r.span,
         }
     }
 }
@@ -2389,7 +2792,11 @@ mod tests {
             Item::Function(func) => {
                 match &func.body.stmts[0] {
                     Stmt::Var(var_stmt) => {
-                        assert_eq!(var_stmt.name.name, "x");
+                        if let BindingPattern::Identifier(ident) = &var_stmt.pattern {
+                            assert_eq!(ident.name, "x");
+                        } else {
+                            panic!("expected identifier pattern");
+                        }
                     }
                     _ => panic!("expected var statement"),
                 }

@@ -400,7 +400,7 @@ impl Formatter {
             Stmt::Let(l) => {
                 self.write(&self.indent());
                 self.write("let ");
-                self.write(&l.name.name);
+                self.format_binding_pattern(&l.pattern);
                 if let Some(ty) = &l.ty {
                     self.write(": ");
                     self.format_type_expr(ty);
@@ -412,7 +412,7 @@ impl Formatter {
             Stmt::Var(v) => {
                 self.write(&self.indent());
                 self.write("var ");
-                self.write(&v.name.name);
+                self.format_binding_pattern(&v.pattern);
                 if let Some(ty) = &v.ty {
                     self.write(": ");
                     self.format_type_expr(ty);
@@ -500,6 +500,54 @@ impl Formatter {
                 self.indent -= 1;
                 self.write(&self.indent());
                 self.writeln("}");
+            }
+            Stmt::Try(t) => {
+                self.write(&self.indent());
+                self.writeln("try {");
+                self.indent += 1;
+                for s in &t.try_block.stmts {
+                    self.format_stmt(s);
+                }
+                self.indent -= 1;
+                self.write(&self.indent());
+                self.write("}");
+                if let Some(catch) = &t.catch {
+                    self.write(" catch");
+                    if let Some(param) = &catch.param {
+                        self.write(" (");
+                        self.write(&param.name);
+                        if let Some(ty) = &catch.param_type {
+                            self.write(": ");
+                            self.format_type_expr(ty);
+                        }
+                        self.write(")");
+                    }
+                    self.writeln(" {");
+                    self.indent += 1;
+                    for s in &catch.body.stmts {
+                        self.format_stmt(s);
+                    }
+                    self.indent -= 1;
+                    self.write(&self.indent());
+                    self.write("}");
+                }
+                if let Some(finally) = &t.finally {
+                    self.writeln(" finally {");
+                    self.indent += 1;
+                    for s in &finally.stmts {
+                        self.format_stmt(s);
+                    }
+                    self.indent -= 1;
+                    self.write(&self.indent());
+                    self.write("}");
+                }
+                self.newline();
+            }
+            Stmt::Throw(t) => {
+                self.write(&self.indent());
+                self.write("throw ");
+                self.format_expr(&t.value);
+                self.newline();
             }
         }
     }
@@ -650,6 +698,35 @@ impl Formatter {
                 self.write(" = ");
                 self.format_expr(&assign.value);
             }
+            Expr::OptionalMember(m) => {
+                self.format_expr(&m.object);
+                self.write("?.");
+                self.write(&m.property.name);
+            }
+            Expr::OptionalIndex(i) => {
+                self.format_expr(&i.object);
+                self.write("?.[");
+                self.format_expr(&i.index);
+                self.write("]");
+            }
+            Expr::NullCoalesce(nc) => {
+                self.format_expr(&nc.left);
+                self.write(" ?? ");
+                self.format_expr(&nc.right);
+            }
+            Expr::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.format_expr(start);
+                }
+                if range.inclusive {
+                    self.write("..=");
+                } else {
+                    self.write("..");
+                }
+                if let Some(end) = &range.end {
+                    self.format_expr(end);
+                }
+            }
         }
     }
 
@@ -694,6 +771,100 @@ impl Formatter {
             Pattern::Identifier(ident) => self.write(&ident.name),
             Pattern::Literal(lit) => self.format_literal(lit),
             Pattern::Wildcard(_) => self.write("_"),
+            Pattern::Or(patterns) => {
+                for (i, p) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        self.write(" | ");
+                    }
+                    self.format_pattern(p);
+                }
+            }
+            Pattern::Object(obj) => {
+                self.write("{ ");
+                for (i, field) in obj.fields.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.write(&field.key.name);
+                    if let Some(pat) = &field.pattern {
+                        self.write(": ");
+                        self.format_pattern(pat);
+                    }
+                }
+                if obj.rest {
+                    if !obj.fields.is_empty() {
+                        self.write(", ");
+                    }
+                    self.write("...");
+                }
+                self.write(" }");
+            }
+            Pattern::Array(arr) => {
+                self.write("[");
+                for (i, elem) in arr.elements.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    match elem {
+                        ArrayMatchElement::Pattern(p) => self.format_pattern(p),
+                        ArrayMatchElement::Rest(opt_id) => {
+                            self.write("...");
+                            if let Some(id) = opt_id {
+                                self.write(&id.name);
+                            }
+                        }
+                    }
+                }
+                self.write("]");
+            }
+        }
+    }
+
+    fn format_binding_pattern(&mut self, pattern: &BindingPattern) {
+        match pattern {
+            BindingPattern::Identifier(ident) => self.write(&ident.name),
+            BindingPattern::Object(obj) => {
+                self.write("{ ");
+                for (i, field) in obj.fields.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.write(&field.key.name);
+                    if let Some(binding) = &field.binding {
+                        self.write(": ");
+                        self.format_binding_pattern(binding);
+                    }
+                    if let Some(default) = &field.default {
+                        self.write(" = ");
+                        self.format_expr(default);
+                    }
+                }
+                if let Some(rest) = &obj.rest {
+                    if !obj.fields.is_empty() {
+                        self.write(", ");
+                    }
+                    self.write("...");
+                    self.write(&rest.name);
+                }
+                self.write(" }");
+            }
+            BindingPattern::Array(arr) => {
+                self.write("[");
+                for (i, elem) in arr.elements.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    match elem {
+                        ArrayPatternElement::Pattern(p) => self.format_binding_pattern(p),
+                        ArrayPatternElement::Rest(id) => {
+                            self.write("...");
+                            self.write(&id.name);
+                        }
+                        ArrayPatternElement::Hole => self.write(","),
+                    }
+                }
+                self.write("]");
+            }
         }
     }
 }

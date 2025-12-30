@@ -207,62 +207,151 @@ impl PythonGenerator {
                 format!("lambda {}: {}", params.join(", "), body)
             }
             Expr::Match(m) => self.generate_match_expr(m),
+            Expr::OptionalMember(m) => {
+                // Python doesn't have ?. but we can use getattr with default
+                format!(
+                    "getattr({}, \"{}\", None)",
+                    self.generate_expr(&m.object),
+                    m.property.name
+                )
+            }
+            Expr::OptionalIndex(i) => {
+                // Use try/except pattern as a ternary
+                let obj = self.generate_expr(&i.object);
+                let idx = self.generate_expr(&i.index);
+                format!("({obj}[{idx}] if {obj} is not None else None)")
+            }
+            Expr::NullCoalesce(nc) => {
+                let left = self.generate_expr(&nc.left);
+                let right = self.generate_expr(&nc.right);
+                format!("({left} if {left} is not None else {right})")
+            }
+            Expr::Range(range) => {
+                let start = range
+                    .start
+                    .as_ref()
+                    .map(|e| self.generate_expr(e))
+                    .unwrap_or_else(|| "0".to_string());
+                let end = range
+                    .end
+                    .as_ref()
+                    .map(|e| self.generate_expr(e))
+                    .unwrap_or_else(|| "".to_string());
+                if range.inclusive {
+                    format!("range({start}, ({end}) + 1)")
+                } else {
+                    format!("range({start}, {end})")
+                }
+            }
+        }
+    }
+
+    fn generate_binding_pattern(&self, pattern: &BindingPattern) -> String {
+        match pattern {
+            BindingPattern::Identifier(ident) => ident.name.clone(),
+            BindingPattern::Object(obj) => {
+                // Python doesn't support object destructuring directly in assignment
+                // We'll just list the variable names - actual unpacking needs separate statements
+                let fields: Vec<_> = obj
+                    .fields
+                    .iter()
+                    .map(|f| f.key.name.clone())
+                    .collect();
+                fields.join(", ")
+            }
+            BindingPattern::Array(arr) => {
+                let elements: Vec<_> = arr
+                    .elements
+                    .iter()
+                    .map(|e| match e {
+                        ArrayPatternElement::Pattern(p) => self.generate_binding_pattern(p),
+                        ArrayPatternElement::Rest(ident) => {
+                            format!("*{}", ident.name)
+                        }
+                        ArrayPatternElement::Hole => "_".to_string(),
+                    })
+                    .collect();
+                elements.join(", ")
+            }
+        }
+    }
+
+    fn generate_pattern_condition(&self, pattern: &Pattern, subject: &str) -> String {
+        match pattern {
+            Pattern::Wildcard(_) => "True".to_string(),
+            Pattern::Identifier(_) => "True".to_string(),
+            Pattern::Literal(lit) => {
+                let pattern_val = match lit {
+                    Literal::String(s) => format!("\"{}\"", s.value.replace('"', "\\\"")),
+                    Literal::Number(n) => n.value.to_string(),
+                    Literal::Boolean(b) => if b.value { "True" } else { "False" }.to_string(),
+                    Literal::Null(_) => "None".to_string(),
+                };
+                format!("({subject}) == {pattern_val}")
+            }
+            Pattern::Or(patterns) => {
+                let conditions: Vec<_> = patterns
+                    .iter()
+                    .map(|p| self.generate_pattern_condition(p, subject))
+                    .collect();
+                format!("({})", conditions.join(" or "))
+            }
+            Pattern::Object(_) | Pattern::Array(_) => {
+                // Complex patterns - just return True for now (basic support)
+                "True".to_string()
+            }
         }
     }
 
     fn generate_match_expr(&self, m: &MatchExpr) -> String {
-        // Generate match as a nested conditional expression (ternary chain)
         let subject = self.generate_expr(&m.subject);
 
-        // For simple cases, generate a chained conditional expression
-        // (value1 if subject == pattern1 else value2 if subject == pattern2 else default)
         let mut result = String::new();
         let mut has_default = false;
+        let mut num_conditions = 0;
 
-        let mut num_literal_patterns = 0;
         for (i, arm) in m.arms.iter().enumerate() {
             let body = self.generate_expr(&arm.body);
+            let condition = self.generate_pattern_condition(&arm.pattern, &subject);
+
+            // Add guard if present
+            let full_condition = if let Some(guard) = &arm.guard {
+                let guard_expr = self.generate_expr(guard);
+                if condition == "True" {
+                    guard_expr
+                } else {
+                    format!("({condition}) and ({guard_expr})")
+                }
+            } else {
+                condition
+            };
+
             match &arm.pattern {
                 Pattern::Wildcard(_) => {
-                    // Default case - close with the body and a paren
                     result.push_str(&format!("{body})"));
                     has_default = true;
                     break;
                 }
-                Pattern::Literal(lit) => {
-                    let pattern_val = match lit {
-                        Literal::String(s) => format!("\"{}\"", s.value.replace('"', "\\\"")),
-                        Literal::Number(n) => n.value.to_string(),
-                        Literal::Boolean(b) => {
-                            if b.value {
-                                "True"
-                            } else {
-                                "False"
-                            }
-                            .to_string()
-                        }
-                        Literal::Null(_) => "None".to_string(),
-                    };
-                    if i == 0 {
-                        result.push_str(&format!("({body} if (({subject}) == {pattern_val}) else "));
-                    } else {
-                        result.push_str(&format!("{body} if (({subject}) == {pattern_val}) else "));
-                    }
-                    num_literal_patterns += 1;
-                }
                 Pattern::Identifier(ident) => {
-                    // Binding pattern - use a lambda to bind the value, close paren
+                    // Binding pattern
                     result.push_str(&format!("(lambda {}: {})({})", ident.name, body, subject));
-                    if num_literal_patterns > 0 {
+                    if num_conditions > 0 {
                         result.push(')');
                     }
                     has_default = true;
                     break;
                 }
+                _ => {
+                    if i == 0 {
+                        result.push_str(&format!("({body} if ({full_condition}) else "));
+                    } else {
+                        result.push_str(&format!("{body} if ({full_condition}) else "));
+                    }
+                    num_conditions += 1;
+                }
             }
         }
 
-        // Add None as default if no wildcard/binding pattern
         if !has_default {
             result.push_str("None)");
         }
@@ -274,6 +363,7 @@ impl PythonGenerator {
         let indent = self.indent_str();
         match stmt {
             Stmt::Let(l) => {
+                let pattern = self.generate_binding_pattern(&l.pattern);
                 let ty_annotation =
                     l.ty.as_ref()
                         .map(|t| format!(": {}", self.generate_type(t)))
@@ -281,12 +371,13 @@ impl PythonGenerator {
                 output.push_str(&format!(
                     "{}{}{} = {}\n",
                     indent,
-                    l.name.name,
+                    pattern,
                     ty_annotation,
                     self.generate_expr(&l.value)
                 ));
             }
             Stmt::Var(v) => {
+                let pattern = self.generate_binding_pattern(&v.pattern);
                 let ty_annotation =
                     v.ty.as_ref()
                         .map(|t| format!(": {}", self.generate_type(t)))
@@ -294,7 +385,7 @@ impl PythonGenerator {
                 output.push_str(&format!(
                     "{}{}{} = {}\n",
                     indent,
-                    v.name.name,
+                    pattern,
                     ty_annotation,
                     self.generate_expr(&v.value)
                 ));
@@ -364,6 +455,35 @@ impl PythonGenerator {
             }
             Stmt::Block(b) => {
                 self.generate_block(b, output);
+            }
+            Stmt::Try(t) => {
+                output.push_str(&format!("{indent}try:\n"));
+                self.indent += 1;
+                self.generate_block(&t.try_block, output);
+                self.indent -= 1;
+                if let Some(catch) = &t.catch {
+                    let param = catch
+                        .param
+                        .as_ref()
+                        .map(|p| format!(" as {}", p.name))
+                        .unwrap_or_default();
+                    output.push_str(&format!("{indent}except Exception{param}:\n"));
+                    self.indent += 1;
+                    self.generate_block(&catch.body, output);
+                    self.indent -= 1;
+                }
+                if let Some(finally) = &t.finally {
+                    output.push_str(&format!("{indent}finally:\n"));
+                    self.indent += 1;
+                    self.generate_block(finally, output);
+                    self.indent -= 1;
+                }
+            }
+            Stmt::Throw(t) => {
+                output.push_str(&format!(
+                    "{indent}raise Exception({})\n",
+                    self.generate_expr(&t.value)
+                ));
             }
         }
     }

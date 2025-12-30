@@ -58,7 +58,11 @@ pub fn token_to_semantic_type(token: &Token) -> Option<u32> {
         | Token::AgUi
         | Token::Servers
         | Token::Transport
-        | Token::Type => Some(0), // KEYWORD
+        | Token::Type
+        | Token::Try
+        | Token::Catch
+        | Token::Finally
+        | Token::Throw => Some(0), // KEYWORD
 
         // Types
         Token::StringType
@@ -103,7 +107,12 @@ pub fn token_to_semantic_type(token: &Token) -> Option<u32> {
         | Token::FatArrow
         | Token::Pipe
         | Token::Question
-        | Token::Ampersand => Some(7), // OPERATOR
+        | Token::Ampersand
+        | Token::QuestionDot
+        | Token::QuestionQuestion
+        | Token::DotDot
+        | Token::DotDotEq
+        | Token::DotDotDot => Some(7), // OPERATOR
 
         // Punctuation - don't highlight
         Token::LParen
