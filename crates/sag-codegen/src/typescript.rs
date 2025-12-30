@@ -74,7 +74,7 @@ impl TypeScriptGenerator {
         }
     }
 
-    fn generate_expr(&self, expr: &Expr) -> String {
+    fn generate_expr(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Literal(lit) => self.generate_literal(lit),
             Expr::Identifier(ident) => ident.name.clone(),
@@ -145,11 +145,21 @@ impl TypeScriptGenerator {
                     .collect();
                 let body = match &arrow.body {
                     ArrowBody::Expr(e) => self.generate_expr(e),
-                    ArrowBody::Block(_) => "{ /* block */ }".to_string(),
+                    ArrowBody::Block(block) => {
+                        // Generate block body for arrow function
+                        let mut result = "{\n".to_string();
+                        for stmt in &block.stmts {
+                            result.push_str("    ");
+                            result.push_str(&self.generate_stmt_inline(stmt));
+                            result.push('\n');
+                        }
+                        result.push_str("  }");
+                        result
+                    }
                 };
                 format!("({}) => {}", params.join(", "), body)
             }
-            Expr::Match(_) => "/* match expression */".to_string(),
+            Expr::Match(m) => self.generate_match_expr(m),
             Expr::Template(tmpl) => {
                 let parts: Vec<_> = tmpl
                     .parts
@@ -275,6 +285,59 @@ impl TypeScriptGenerator {
         self.indent -= 1;
         result.push_str(&self.indent());
         result.push('}');
+        result
+    }
+
+    fn generate_stmt_inline(&mut self, stmt: &Stmt) -> String {
+        // Generate statement without leading indent (for inline use)
+        let old_indent = self.indent;
+        self.indent = 0;
+        let result = self.generate_stmt(stmt);
+        self.indent = old_indent;
+        result
+    }
+
+    fn generate_match_expr(&mut self, m: &MatchExpr) -> String {
+        // Generate match as an IIFE with if/else chain
+        let subject = self.generate_expr(&m.subject);
+        let mut result = "((__match_subject__) => {\n".to_string();
+
+        let mut first = true;
+        for arm in &m.arms {
+            let body = self.generate_expr(&arm.body);
+            match &arm.pattern {
+                Pattern::Wildcard(_) => {
+                    // Default case - must be last
+                    if first {
+                        result.push_str(&format!("    return {body};\n"));
+                    } else {
+                        result.push_str(&format!("    else {{\n      return {body};\n    }}\n"));
+                    }
+                }
+                Pattern::Literal(lit) => {
+                    let pattern_val = self.generate_literal(lit);
+                    if first {
+                        result.push_str(&format!(
+                            "    if (__match_subject__ === {pattern_val}) {{\n      return {body};\n    }}\n"
+                        ));
+                        first = false;
+                    } else {
+                        result.push_str(&format!(
+                            "    else if (__match_subject__ === {pattern_val}) {{\n      return {body};\n    }}\n"
+                        ));
+                    }
+                }
+                Pattern::Identifier(ident) => {
+                    // Binding pattern - binds the value and always matches
+                    result.push_str(&format!(
+                        "    else {{\n      const {} = __match_subject__;\n      return {};\n    }}\n",
+                        ident.name, body
+                    ));
+                }
+            }
+        }
+
+        result.push_str(&format!("  }})({subject})"));
         result
     }
 

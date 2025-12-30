@@ -181,9 +181,93 @@ impl PythonGenerator {
                 self.generate_expr(&a.target),
                 self.generate_expr(&a.value)
             ),
-            Expr::Arrow(_) => "lambda: ...".to_string(), // Simplified
-            Expr::Match(_) => "# match expression".to_string(), // TODO
+            Expr::Arrow(arrow) => {
+                let params: Vec<_> = arrow.params.iter().map(|p| p.name.name.clone()).collect();
+                let body = match &arrow.body {
+                    ArrowBody::Expr(e) => self.generate_expr(e),
+                    ArrowBody::Block(block) => {
+                        // For block bodies, we need a multi-line lambda which Python doesn't support
+                        // Generate a call to a locally defined function instead
+                        if block.stmts.is_empty() {
+                            "None".to_string()
+                        } else if block.stmts.len() == 1 {
+                            if let Stmt::Return(r) = &block.stmts[0] {
+                                r.value
+                                    .as_ref()
+                                    .map(|e| self.generate_expr(e))
+                                    .unwrap_or_else(|| "None".to_string())
+                            } else {
+                                "None".to_string()
+                            }
+                        } else {
+                            "None  # Complex block body not supported in lambda".to_string()
+                        }
+                    }
+                };
+                format!("lambda {}: {}", params.join(", "), body)
+            }
+            Expr::Match(m) => self.generate_match_expr(m),
         }
+    }
+
+    fn generate_match_expr(&self, m: &MatchExpr) -> String {
+        // Generate match as a nested conditional expression (ternary chain)
+        let subject = self.generate_expr(&m.subject);
+
+        // For simple cases, generate a chained conditional expression
+        // (value1 if subject == pattern1 else value2 if subject == pattern2 else default)
+        let mut result = String::new();
+        let mut has_default = false;
+
+        let mut num_literal_patterns = 0;
+        for (i, arm) in m.arms.iter().enumerate() {
+            let body = self.generate_expr(&arm.body);
+            match &arm.pattern {
+                Pattern::Wildcard(_) => {
+                    // Default case - close with the body and a paren
+                    result.push_str(&format!("{body})"));
+                    has_default = true;
+                    break;
+                }
+                Pattern::Literal(lit) => {
+                    let pattern_val = match lit {
+                        Literal::String(s) => format!("\"{}\"", s.value.replace('"', "\\\"")),
+                        Literal::Number(n) => n.value.to_string(),
+                        Literal::Boolean(b) => {
+                            if b.value {
+                                "True"
+                            } else {
+                                "False"
+                            }
+                            .to_string()
+                        }
+                        Literal::Null(_) => "None".to_string(),
+                    };
+                    if i == 0 {
+                        result.push_str(&format!("({body} if (({subject}) == {pattern_val}) else "));
+                    } else {
+                        result.push_str(&format!("{body} if (({subject}) == {pattern_val}) else "));
+                    }
+                    num_literal_patterns += 1;
+                }
+                Pattern::Identifier(ident) => {
+                    // Binding pattern - use a lambda to bind the value, close paren
+                    result.push_str(&format!("(lambda {}: {})({})", ident.name, body, subject));
+                    if num_literal_patterns > 0 {
+                        result.push(')');
+                    }
+                    has_default = true;
+                    break;
+                }
+            }
+        }
+
+        // Add None as default if no wildcard/binding pattern
+        if !has_default {
+            result.push_str("None)");
+        }
+
+        result
     }
 
     fn generate_stmt(&mut self, stmt: &Stmt, output: &mut String) {
@@ -505,6 +589,48 @@ root_agent = {name}
         self.indent -= 1;
         output.push('\n');
     }
+
+    fn generate_skill(&mut self, skill: &Skill, output: &mut String) {
+        // Generate skill as a Python class containing its items
+        output.push_str(&format!("class {}:\n", skill.name.name));
+        self.indent += 1;
+
+        // Add docstring if description exists
+        if let Some(desc) = &skill.description {
+            output.push_str(&format!("{}\"\"\"{}.\"\"\"\n\n", self.indent_str(), desc.value));
+        }
+
+        // Generate skill body items
+        let mut has_items = false;
+        for item in &skill.body {
+            match item {
+                Item::Function(f) => {
+                    self.generate_function(f, output);
+                    has_items = true;
+                }
+                Item::TypeDef(t) => {
+                    self.generate_type_def(t, output);
+                    has_items = true;
+                }
+                Item::Skill(s) => {
+                    // Nested skills become nested classes
+                    self.generate_skill(s, output);
+                    has_items = true;
+                }
+                Item::Agent(_) => {
+                    // Agents within skills are not typical, skip
+                }
+            }
+        }
+
+        // Empty skill needs pass
+        if !has_items {
+            output.push_str(&format!("{}pass\n", self.indent_str()));
+        }
+
+        self.indent -= 1;
+        output.push('\n');
+    }
 }
 
 impl Default for PythonGenerator {
@@ -546,7 +672,7 @@ impl CodeGenerator for PythonGenerator {
             match item {
                 Item::TypeDef(t) => gen.generate_type_def(t, &mut output),
                 Item::Function(f) => gen.generate_function(f, &mut output),
-                Item::Skill(_) => {} // TODO: Handle skills
+                Item::Skill(skill) => gen.generate_skill(skill, &mut output),
                 Item::Agent(_) => unreachable!(),
             }
         }

@@ -87,7 +87,7 @@ impl GoGenerator {
         }
     }
 
-    fn generate_expr(&self, expr: &Expr) -> String {
+    fn generate_expr(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Literal(lit) => self.generate_literal(lit),
             Expr::Identifier(ident) => ident.name.clone(),
@@ -161,11 +161,18 @@ impl GoGenerator {
                     .collect();
                 let body = match &arrow.body {
                     ArrowBody::Expr(e) => format!("return {}", self.generate_expr(e)),
-                    ArrowBody::Block(_) => "/* block */".to_string(),
+                    ArrowBody::Block(block) => {
+                        // Generate block body for anonymous function
+                        let mut stmts = Vec::new();
+                        for stmt in &block.stmts {
+                            stmts.push(self.generate_stmt_inline(stmt));
+                        }
+                        stmts.join("\n\t\t")
+                    }
                 };
                 format!("func({}) {{ {} }}", params.join(", "), body)
             }
-            Expr::Match(_) => "/* match expression */".to_string(),
+            Expr::Match(m) => self.generate_match_expr(m),
             Expr::Template(tmpl) => {
                 let mut parts = Vec::new();
                 let mut format_args = Vec::new();
@@ -296,6 +303,45 @@ impl GoGenerator {
         self.indent -= 1;
         result.push_str(&self.indent());
         result.push('}');
+        result
+    }
+
+    fn generate_stmt_inline(&mut self, stmt: &Stmt) -> String {
+        // Generate statement without leading indent (for inline use)
+        let old_indent = self.indent;
+        self.indent = 0;
+        let result = self.generate_stmt(stmt);
+        self.indent = old_indent;
+        result
+    }
+
+    fn generate_match_expr(&mut self, m: &MatchExpr) -> String {
+        // Go doesn't have match expressions, generate as an immediately invoked function
+        // with a switch statement
+        let subject = self.generate_expr(&m.subject);
+        let mut result = format!("func() interface{{}} {{\n\t\tswitch __match_subject__ := {subject}; __match_subject__ {{\n");
+
+        for arm in &m.arms {
+            let body = self.generate_expr(&arm.body);
+            match &arm.pattern {
+                Pattern::Wildcard(_) => {
+                    result.push_str(&format!("\t\tdefault:\n\t\t\treturn {body}\n"));
+                }
+                Pattern::Literal(lit) => {
+                    let pattern_val = self.generate_literal(lit);
+                    result.push_str(&format!("\t\tcase {pattern_val}:\n\t\t\treturn {body}\n"));
+                }
+                Pattern::Identifier(ident) => {
+                    // Binding pattern - bind the value and return
+                    result.push_str(&format!(
+                        "\t\tdefault:\n\t\t\t{} := __match_subject__\n\t\t\treturn {}\n",
+                        ident.name, body
+                    ));
+                }
+            }
+        }
+
+        result.push_str("\t\t}\n\t\treturn nil\n\t}()");
         result
     }
 

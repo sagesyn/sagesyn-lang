@@ -1,0 +1,24 @@
+// Example with match expressions
+
+fn classify(x: number) -> string {
+    let result = match x {
+        0 => "zero"
+        1 => "one"
+        _ => "other"
+    }
+    return result
+}
+
+agent ClassifierAgent {
+    description: "An agent that classifies numbers"
+
+    tool classify_number(n: number) -> string {
+        description: "Classify a number"
+        return match n {
+            0 => "zero"
+            1 => "one"
+            2 => "two"
+            _ => "many"
+        }
+    }
+}
