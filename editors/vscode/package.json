@@ -2,7 +2,7 @@
   "name": "sage-agent-language",
   "displayName": "Sage Agent Language",
   "description": "Language support for Sage Agent Programming Language (.sag files) - syntax highlighting, LSP, and more",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "sagesyn",
   "author": {
     "name": "SageSyn",
@@ -62,6 +62,12 @@
         "language": "sag",
         "scopeName": "source.sag",
         "path": "./syntaxes/sag.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sag.showLspInfo",
+        "title": "Sage: Show Language Server Status"
       }
     ],
     "configuration": {

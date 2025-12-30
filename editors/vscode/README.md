@@ -4,11 +4,16 @@ Language support for the Sage Agent Programming Language (`.sag` files).
 
 ## Features
 
-- **Syntax Highlighting** - Full TextMate grammar for `.sag` files
-- **Language Server Protocol** - Diagnostics, hover info, completions, and more
+### Works Out of the Box
+- **Syntax Highlighting** - Full TextMate grammar for `.sag` files (no additional installation required)
+
+### With Language Server (optional)
+- **Diagnostics** - Real-time error checking as you type
+- **Hover Info** - Type information and documentation on hover
 - **Auto-completion** - Keyword and context-aware suggestions
 - **Go to Definition** - Navigate to tool and type definitions
-- **Error Diagnostics** - Real-time error checking as you type
+
+> **Note:** The extension works without the language server! You get syntax highlighting immediately. Install `sag-lsp` for advanced features.
 
 ## Installation
 
@@ -27,7 +32,9 @@ code --install-extension sage-agent-language-0.1.1.vsix
 
 ## Requirements
 
-For full language server features, you need the `sag-lsp` binary:
+**Syntax highlighting works immediately** - no additional installation required!
+
+For advanced LSP features (diagnostics, completion, hover), install the `sag-lsp` binary:
 
 ### Option 1: Download Pre-built Binary
 
@@ -152,19 +159,26 @@ This creates `sage-agent-language-x.x.x.vsix`.
 
 ## Troubleshooting
 
+### "Sage Language Server (sag-lsp) not found" warning
+
+This is normal if you haven't installed the LSP server yet. Syntax highlighting still works! To enable advanced features:
+1. Install `sag-lsp` (see Requirements section above)
+2. Ensure it's in your PATH, or set `sag.server.path` in settings
+
+### Status Bar Indicator
+
+The status bar shows the current state:
+- `✓ Sage LSP` - Full LSP support is active
+- `⚠ Sage (syntax only)` - LSP not available, syntax highlighting only
+
 ### Extension not activating
 
-- Check the Output panel (`View > Output`) and select "Sage Agent Language"
+- Check the Output panel (`View > Output`) and select "Sage Agent Language Server"
 - Ensure the file has `.sag` extension
-
-### LSP server not starting
-
-- Verify the server path in settings is correct
-- Check that the binary exists and is executable
 
 ### No syntax highlighting
 
-- TextMate grammar provides basic highlighting without the LSP server
+- TextMate grammar provides highlighting without the LSP server
 - Full semantic highlighting requires the LSP server to be running
 
 ---
