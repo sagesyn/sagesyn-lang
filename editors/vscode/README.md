@@ -1,14 +1,116 @@
 # Sage Agent Language - VS Code Extension
 
-## Testing the Extension Locally
+Language support for the Sage Agent Programming Language (`.sag` files).
 
-### Prerequisites
+## Features
+
+- **Syntax Highlighting** - Full TextMate grammar for `.sag` files
+- **Language Server Protocol** - Diagnostics, hover info, completions, and more
+- **Auto-completion** - Keyword and context-aware suggestions
+- **Go to Definition** - Navigate to tool and type definitions
+- **Error Diagnostics** - Real-time error checking as you type
+
+## Installation
+
+### From VS Code Marketplace
+
+1. Open VS Code
+2. Go to Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`)
+3. Search for "Sage Agent Language"
+4. Click Install
+
+### From VSIX File
+
+```bash
+code --install-extension sage-agent-language-0.1.1.vsix
+```
+
+## Requirements
+
+For full language server features, you need the `sag-lsp` binary:
+
+### Option 1: Download Pre-built Binary
+
+Download from [GitHub Releases](https://github.com/sagesyn/sagesyn-lang/releases) and add to your PATH.
+
+### Option 2: Build from Source
+
+```bash
+git clone https://github.com/sagesyn/sagesyn-lang.git
+cd sagesyn-lang
+cargo build --release --bin sag-lsp
+```
+
+Then configure the extension:
+- Open Settings (`Cmd+,` / `Ctrl+,`)
+- Search for `sag.server.path`
+- Set to the path of your `sag-lsp` binary
+
+## Configuration
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `sag.server.path` | Path to sag-lsp binary | (searches PATH) |
+| `sag.trace.server` | Trace LSP communication | `off` |
+
+## Example
+
+```sag
+agent WeatherAgent {
+  description: "An agent that provides weather information"
+  version: "1.0.0"
+
+  model {
+    provider: "anthropic"
+    name: "claude-sonnet-4-20250514"
+  }
+
+  state {
+    lastCity?: string
+  }
+
+  tool get_weather(city: string) -> WeatherData {
+    description: "Get current weather for a city"
+    let data = await http.get(`https://api.weather.com/${city}`)
+    return data
+  }
+
+  on user_message {
+    let weather = get_weather("San Francisco")
+    emit response(weather)
+  }
+}
+
+type WeatherData {
+  temperature: number
+  humidity: number
+  description: string
+}
+```
+
+## Supported Language Features
+
+- **Agents** - `agent`, `tool`, `state`, `model`, `protocols`, `on`
+- **Control Flow** - `if`, `else`, `for`, `while`, `match`, `return`
+- **Functions** - `fn`, `async`, `await`
+- **Types** - `type`, `string`, `number`, `boolean`, `array`, `record`, `optional`, `tuple`
+- **Operators** - Arithmetic, comparison, logical, assignment
+- **Strings** - Double-quoted and template literals with `${interpolation}`
+- **Comments** - Line (`//`) and block (`/* */`)
+
+---
+
+## Development
+
+### Testing the Extension Locally
+
+#### Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18 or later)
 - [VS Code](https://code.visualstudio.com/)
 - Rust toolchain (for building the LSP server)
 
-### Step 1: Build the LSP Server
+#### Step 1: Build the LSP Server
 
 From the repository root:
 
@@ -18,87 +120,33 @@ cargo build --release --bin sag-lsp
 
 The binary will be at `target/release/sag-lsp`.
 
-### Step 2: Install Extension Dependencies
+#### Step 2: Install Extension Dependencies
 
 ```bash
 cd editors/vscode
 npm install
 ```
 
-### Step 3: Compile the Extension
+#### Step 3: Compile the Extension
 
 ```bash
 npm run compile
 ```
 
-If you don't have a compile script, run:
+#### Step 4: Launch Extension in Debug Mode
 
-```bash
-npx tsc -p .
-```
-
-### Step 4: Launch Extension in Debug Mode
-
-1. Open the `editors/vscode` folder in VS Code:
-
-   ```bash
-   code editors/vscode
-   ```
-
+1. Open the `editors/vscode` folder in VS Code
 2. Press `F5` to launch the Extension Development Host
+3. Configure `sag.server.path` in settings to point to the LSP binary
+4. Open a `.sag` file to test
 
-3. In the new VS Code window, configure the LSP server path:
-   - Open Settings (`Cmd+,` or `Ctrl+,`)
-   - Search for "sag.server.path"
-   - Set it to the absolute path of `target/release/sag-lsp` in your clone
-
-4. Open a `.sag` file to test:
-
-   ```bash
-   # Create a test file
-   cat > ~/test.sag << 'EOF'
-   agent HelloAgent {
-     description: "A simple hello world agent"
-
-     model {
-       provider: google
-       name: gemini-2.0-flash
-     }
-
-     tool greet(name: string) -> string {
-       description: "Greet someone"
-       return `Hello, ${name}!`
-     }
-   }
-   EOF
-   ```
-
-### Step 5: Test Features
-
-Once you have a `.sag` file open, test these features:
-
-| Feature             | How to Test                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| Syntax Highlighting | Colors should appear for keywords, strings, etc.               |
-| Diagnostics         | Introduce an error (e.g., `foo: "bar"`) and see red squiggles  |
-| Hover               | Hover over `agent`, `tool`, `state` keywords                   |
-| Completions         | Type inside an agent body and press `Ctrl+Space`               |
-| Go to Definition    | `Ctrl+Click` on a tool name                                    |
-
-### Packaging the Extension (Optional)
-
-To create a `.vsix` file for distribution:
+### Packaging
 
 ```bash
-npm install -g @vscode/vsce
-vsce package
+npm run package
 ```
 
-This creates `sage-agent-language-x.x.x.vsix` which can be installed via:
-
-```bash
-code --install-extension sage-agent-language-x.x.x.vsix
-```
+This creates `sage-agent-language-x.x.x.vsix`.
 
 ---
 
@@ -106,29 +154,27 @@ code --install-extension sage-agent-language-x.x.x.vsix
 
 ### Extension not activating
 
-- Check the Output panel (`View > Output`) and select "Sage Agent Language" from the dropdown
+- Check the Output panel (`View > Output`) and select "Sage Agent Language"
 - Ensure the file has `.sag` extension
 
 ### LSP server not starting
 
 - Verify the server path in settings is correct
-- Check that the binary exists and is executable:
-
-  ```bash
-  ls -la target/release/sag-lsp
-  ```
+- Check that the binary exists and is executable
 
 ### No syntax highlighting
 
-- The TextMate grammar (`syntaxes/sag.tmLanguage.json`) provides basic highlighting
+- TextMate grammar provides basic highlighting without the LSP server
 - Full semantic highlighting requires the LSP server to be running
 
-### Rebuild after changes
+---
 
-If you modify the extension code:
+## Links
 
-```bash
-npx tsc -p .
-```
+- [GitHub Repository](https://github.com/sagesyn/sagesyn-lang)
+- [Language Documentation](https://sagesyn.ai/docs)
+- [Report Issues](https://github.com/sagesyn/sagesyn-lang/issues)
 
-Then press `Ctrl+Shift+F5` in the Extension Development Host to reload.
+## License
+
+MIT
