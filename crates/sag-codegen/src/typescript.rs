@@ -210,7 +210,9 @@ impl TypeScriptGenerator {
                 if range.inclusive {
                     format!("Array.from({{ length: ({end}) - ({start}) + 1 }}, (_, i) => ({start}) + i)")
                 } else {
-                    format!("Array.from({{ length: ({end}) - ({start}) }}, (_, i) => ({start}) + i)")
+                    format!(
+                        "Array.from({{ length: ({end}) - ({start}) }}, (_, i) => ({start}) + i)"
+                    )
                 }
             }
         }
@@ -235,7 +237,9 @@ impl TypeScriptGenerator {
                     .map(|f| {
                         let key = &f.key.name;
                         match &f.binding {
-                            Some(alias) => format!("{}: {}", key, self.generate_binding_pattern(alias)),
+                            Some(alias) => {
+                                format!("{}: {}", key, self.generate_binding_pattern(alias))
+                            }
                             None => key.clone(),
                         }
                     })
@@ -347,14 +351,19 @@ impl TypeScriptGenerator {
             }
             Stmt::Block(b) => self.generate_block(b),
             Stmt::Try(t) => {
-                let mut result = format!("{}try {}", self.indent(), self.generate_block(&t.try_block));
+                let mut result =
+                    format!("{}try {}", self.indent(), self.generate_block(&t.try_block));
                 if let Some(catch) = &t.catch {
                     let param = catch
                         .param
                         .as_ref()
                         .map(|p| format!(" ({})", p.name))
                         .unwrap_or_default();
-                    result.push_str(&format!(" catch{} {}", param, self.generate_block(&catch.body)));
+                    result.push_str(&format!(
+                        " catch{} {}",
+                        param,
+                        self.generate_block(&catch.body)
+                    ));
                 }
                 if let Some(finally) = &t.finally {
                     result.push_str(&format!(" finally {}", self.generate_block(finally)));
@@ -483,9 +492,7 @@ impl TypeScriptGenerator {
                             }
                         }
                         None => {
-                            bindings.push(format!(
-                                "const {key} = __match_subject__.{key};"
-                            ));
+                            bindings.push(format!("const {key} = __match_subject__.{key};"));
                         }
                     }
                 }
@@ -553,7 +560,9 @@ impl TypeScriptGenerator {
                 if first {
                     result.push_str(&format!("    {bindings_code}return {body};\n"));
                 } else {
-                    result.push_str(&format!("    else {{\n      {bindings_code}return {body};\n    }}\n"));
+                    result.push_str(&format!(
+                        "    else {{\n      {bindings_code}return {body};\n    }}\n"
+                    ));
                 }
             } else if first {
                 result.push_str(&format!(

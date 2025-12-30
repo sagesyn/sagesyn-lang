@@ -807,7 +807,9 @@ impl<'src> TypeChecker<'src> {
             let parent_env = std::mem::take(&mut self.env);
             self.env = parent_env.child();
             if let Some(ref param) = catch.param {
-                let param_ty = catch.param_type.as_ref()
+                let param_ty = catch
+                    .param_type
+                    .as_ref()
                     .map(|t| self.resolve_type(t))
                     .unwrap_or(Type::Unknown);
                 self.env.define(&param.name, param_ty);
@@ -910,7 +912,8 @@ impl<'src> TypeChecker<'src> {
                             self.define_binding_pattern(p, el_ty);
                         }
                         ArrayPatternElement::Rest(ident) => {
-                            self.env.define(&ident.name, Type::Array(Box::new(elem_ty.clone())));
+                            self.env
+                                .define(&ident.name, Type::Array(Box::new(elem_ty.clone())));
                         }
                         ArrayPatternElement::Hole => {}
                     }
@@ -1494,7 +1497,8 @@ impl<'src> TypeChecker<'src> {
             Pattern::Array(arr) => {
                 // Array destructuring pattern - define elements
                 for elem in &arr.elements {
-                    if let sag_parser::ArrayMatchElement::Pattern(Pattern::Identifier(ident)) = elem {
+                    if let sag_parser::ArrayMatchElement::Pattern(Pattern::Identifier(ident)) = elem
+                    {
                         self.env.define(&ident.name, Type::Unknown);
                     }
                 }
@@ -1797,7 +1801,10 @@ mod tests {
         "#;
         let program = Parser::parse(source).unwrap();
         let result = TypeChecker::check(source, &program);
-        assert!(result.is_err(), "Expected type error for non-boolean condition");
+        assert!(
+            result.is_err(),
+            "Expected type error for non-boolean condition"
+        );
         let errors = result.unwrap_err();
         assert_eq!(errors[0].kind, TypeErrorKind::TypeMismatch);
     }
@@ -1845,7 +1852,10 @@ mod tests {
         "#;
         let program = Parser::parse(source).unwrap();
         let result = TypeChecker::check(source, &program);
-        assert!(result.is_err(), "Expected type error for non-boolean while condition");
+        assert!(
+            result.is_err(),
+            "Expected type error for non-boolean while condition"
+        );
     }
 
     #[test]
@@ -1893,7 +1903,10 @@ mod tests {
         "#;
         let program = Parser::parse(source).unwrap();
         let result = TypeChecker::check(source, &program);
-        assert!(result.is_err(), "Expected error for non-numeric array index");
+        assert!(
+            result.is_err(),
+            "Expected error for non-numeric array index"
+        );
     }
 
     #[test]

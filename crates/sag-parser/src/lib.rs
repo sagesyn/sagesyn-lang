@@ -880,7 +880,8 @@ impl<'src> Parser<'src> {
                 None
             };
 
-            let field_end = self.tokens
+            let field_end = self
+                .tokens
                 .get(self.pos.saturating_sub(1))
                 .map(|t| t.span.end)
                 .unwrap_or(field_start.end);
@@ -958,7 +959,8 @@ impl<'src> Parser<'src> {
             } else {
                 (None, None)
             };
-            let catch_start = self.tokens
+            let catch_start = self
+                .tokens
                 .get(self.pos.saturating_sub(1))
                 .map(|t| t.span.start)
                 .unwrap_or(start_span.start);
@@ -967,10 +969,13 @@ impl<'src> Parser<'src> {
                 param,
                 param_type,
                 body,
-                span: Span::new(catch_start, self.tokens
-                    .get(self.pos.saturating_sub(1))
-                    .map(|t| t.span.end)
-                    .unwrap_or(catch_start)),
+                span: Span::new(
+                    catch_start,
+                    self.tokens
+                        .get(self.pos.saturating_sub(1))
+                        .map(|t| t.span.end)
+                        .unwrap_or(catch_start),
+                ),
             })
         } else {
             None
@@ -983,7 +988,8 @@ impl<'src> Parser<'src> {
             None
         };
 
-        let end_pos = self.tokens
+        let end_pos = self
+            .tokens
             .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start_span.end);
@@ -999,7 +1005,8 @@ impl<'src> Parser<'src> {
     fn parse_throw_stmt(&mut self) -> Result<ThrowStmt, ParseError> {
         let start_span = self.expect(Token::Throw)?;
         let value = self.parse_expr()?;
-        let end_pos = self.tokens
+        let end_pos = self
+            .tokens
             .get(self.pos.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start_span.end);
@@ -1186,22 +1193,34 @@ impl<'src> Parser<'src> {
             Some(Token::StringLiteral(s)) => {
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(Literal::String(StringLit { value: s, span })))
+                Ok(Pattern::Literal(Literal::String(StringLit {
+                    value: s,
+                    span,
+                })))
             }
             Some(Token::NumberLiteral(n)) => {
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(Literal::Number(NumberLit { value: n, span })))
+                Ok(Pattern::Literal(Literal::Number(NumberLit {
+                    value: n,
+                    span,
+                })))
             }
             Some(Token::True) => {
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(Literal::Boolean(BoolLit { value: true, span })))
+                Ok(Pattern::Literal(Literal::Boolean(BoolLit {
+                    value: true,
+                    span,
+                })))
             }
             Some(Token::False) => {
                 let span = self.current_span();
                 self.advance();
-                Ok(Pattern::Literal(Literal::Boolean(BoolLit { value: false, span })))
+                Ok(Pattern::Literal(Literal::Boolean(BoolLit {
+                    value: false,
+                    span,
+                })))
             }
             Some(Token::Null) => {
                 let span = self.current_span();
@@ -1213,12 +1232,8 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(Pattern::Wildcard(span))
             }
-            Some(Token::LBrace) => {
-                self.parse_object_match_pattern()
-            }
-            Some(Token::LBracket) => {
-                self.parse_array_match_pattern()
-            }
+            Some(Token::LBrace) => self.parse_object_match_pattern(),
+            Some(Token::LBracket) => self.parse_array_match_pattern(),
             Some(Token::Identifier(_)) => {
                 let ident = self.parse_identifier()?;
                 Ok(Pattern::Identifier(ident))
@@ -1259,7 +1274,8 @@ impl<'src> Parser<'src> {
                 None
             };
 
-            let field_end = self.tokens
+            let field_end = self
+                .tokens
                 .get(self.pos.saturating_sub(1))
                 .map(|t| t.span.end)
                 .unwrap_or(field_start.end);
@@ -1466,12 +1482,15 @@ impl<'src> Parser<'src> {
                 None
             };
 
-            let end_pos = end.as_ref()
+            let end_pos = end
+                .as_ref()
                 .map(|e| self.expr_span(e).end)
-                .unwrap_or_else(|| self.tokens
-                    .get(self.pos.saturating_sub(1))
-                    .map(|t| t.span.end)
-                    .unwrap_or(start_span.end));
+                .unwrap_or_else(|| {
+                    self.tokens
+                        .get(self.pos.saturating_sub(1))
+                        .map(|t| t.span.end)
+                        .unwrap_or(start_span.end)
+                });
 
             let left_start = self.expr_span(&left).start;
             return Ok(Expr::Range(RangeExpr {
@@ -1489,14 +1508,13 @@ impl<'src> Parser<'src> {
     fn is_range_end(&self) -> bool {
         matches!(
             self.peek_token(),
-            None
-            | Some(Token::RParen)
-            | Some(Token::RBracket)
-            | Some(Token::RBrace)
-            | Some(Token::Comma)
-            | Some(Token::Semicolon)
-            | Some(Token::FatArrow)
-            | Some(Token::LBrace)
+            None | Some(Token::RParen)
+                | Some(Token::RBracket)
+                | Some(Token::RBrace)
+                | Some(Token::Comma)
+                | Some(Token::Semicolon)
+                | Some(Token::FatArrow)
+                | Some(Token::LBrace)
         )
     }
 
@@ -2459,14 +2477,12 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::For(for_stmt) => {
-                        assert_eq!(for_stmt.binding.name, "item");
-                    }
-                    _ => panic!("expected for statement"),
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::For(for_stmt) => {
+                    assert_eq!(for_stmt.binding.name, "item");
                 }
-            }
+                _ => panic!("expected for statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2483,12 +2499,10 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::While(_) => {}
-                    _ => panic!("expected while statement"),
-                }
-            }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::While(_) => {}
+                _ => panic!("expected while statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2503,14 +2517,12 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Return(ret) => {
-                        assert!(ret.value.is_some());
-                    }
-                    _ => panic!("expected return statement"),
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Return(ret) => {
+                    assert!(ret.value.is_some());
                 }
-            }
+                _ => panic!("expected return statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2542,19 +2554,15 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Return(ret) => {
-                        match ret.value.as_ref().unwrap() {
-                            Expr::Array(arr) => {
-                                assert_eq!(arr.elements.len(), 5);
-                            }
-                            _ => panic!("expected array expression"),
-                        }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Return(ret) => match ret.value.as_ref().unwrap() {
+                    Expr::Array(arr) => {
+                        assert_eq!(arr.elements.len(), 5);
                     }
-                    _ => panic!("expected return statement"),
-                }
-            }
+                    _ => panic!("expected array expression"),
+                },
+                _ => panic!("expected return statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2569,19 +2577,15 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Let(let_stmt) => {
-                        match &let_stmt.value {
-                            Expr::Record(rec) => {
-                                assert_eq!(rec.fields.len(), 2);
-                            }
-                            _ => panic!("expected record expression"),
-                        }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Let(let_stmt) => match &let_stmt.value {
+                    Expr::Record(rec) => {
+                        assert_eq!(rec.fields.len(), 2);
                     }
-                    _ => panic!("expected let statement"),
-                }
-            }
+                    _ => panic!("expected record expression"),
+                },
+                _ => panic!("expected let statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2596,19 +2600,15 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Let(let_stmt) => {
-                        match &let_stmt.value {
-                            Expr::Member(m) => {
-                                assert_eq!(m.property.name, "first");
-                            }
-                            _ => panic!("expected member expression"),
-                        }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Let(let_stmt) => match &let_stmt.value {
+                    Expr::Member(m) => {
+                        assert_eq!(m.property.name, "first");
                     }
-                    _ => panic!("expected let statement"),
-                }
-            }
+                    _ => panic!("expected member expression"),
+                },
+                _ => panic!("expected let statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2623,17 +2623,13 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Let(let_stmt) => {
-                        match &let_stmt.value {
-                            Expr::Index(_) => {}
-                            _ => panic!("expected index expression"),
-                        }
-                    }
-                    _ => panic!("expected let statement"),
-                }
-            }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Let(let_stmt) => match &let_stmt.value {
+                    Expr::Index(_) => {}
+                    _ => panic!("expected index expression"),
+                },
+                _ => panic!("expected let statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2648,19 +2644,15 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Let(let_stmt) => {
-                        match &let_stmt.value {
-                            Expr::Call(call) => {
-                                assert_eq!(call.args.len(), 3);
-                            }
-                            _ => panic!("expected call expression"),
-                        }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Let(let_stmt) => match &let_stmt.value {
+                    Expr::Call(call) => {
+                        assert_eq!(call.args.len(), 3);
                     }
-                    _ => panic!("expected let statement"),
-                }
-            }
+                    _ => panic!("expected call expression"),
+                },
+                _ => panic!("expected let statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2692,14 +2684,12 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::TypeDef(typedef) => {
-                match &typedef.kind {
-                    TypeDefKind::Alias(TypeExpr::Union(types)) => {
-                        assert_eq!(types.len(), 3);
-                    }
-                    _ => panic!("expected union type"),
+            Item::TypeDef(typedef) => match &typedef.kind {
+                TypeDefKind::Alias(TypeExpr::Union(types)) => {
+                    assert_eq!(types.len(), 3);
                 }
-            }
+                _ => panic!("expected union type"),
+            },
             _ => panic!("expected type def"),
         }
     }
@@ -2741,12 +2731,10 @@ mod tests {
             Item::Agent(agent) => {
                 assert_eq!(agent.handlers.len(), 1);
                 match &agent.handlers[0].body.stmts[0] {
-                    Stmt::Expr(expr_stmt) => {
-                        match &expr_stmt.expr {
-                            Expr::Assign(_) => {}
-                            _ => panic!("expected assignment expression"),
-                        }
-                    }
+                    Stmt::Expr(expr_stmt) => match &expr_stmt.expr {
+                        Expr::Assign(_) => {}
+                        _ => panic!("expected assignment expression"),
+                    },
                     _ => panic!("expected expression statement"),
                 }
             }
@@ -2789,18 +2777,16 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Var(var_stmt) => {
-                        if let BindingPattern::Identifier(ident) = &var_stmt.pattern {
-                            assert_eq!(ident.name, "x");
-                        } else {
-                            panic!("expected identifier pattern");
-                        }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Var(var_stmt) => {
+                    if let BindingPattern::Identifier(ident) = &var_stmt.pattern {
+                        assert_eq!(ident.name, "x");
+                    } else {
+                        panic!("expected identifier pattern");
                     }
-                    _ => panic!("expected var statement"),
                 }
-            }
+                _ => panic!("expected var statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2835,12 +2821,10 @@ mod tests {
             Item::Function(func) => {
                 assert!(func.is_async);
                 match &func.body.stmts[0] {
-                    Stmt::Let(let_stmt) => {
-                        match &let_stmt.value {
-                            Expr::Await(_) => {}
-                            _ => panic!("expected await expression"),
-                        }
-                    }
+                    Stmt::Let(let_stmt) => match &let_stmt.value {
+                        Expr::Await(_) => {}
+                        _ => panic!("expected await expression"),
+                    },
                     _ => panic!("expected let statement"),
                 }
             }
@@ -2864,19 +2848,15 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.body.stmts[0] {
-                    Stmt::Let(let_stmt) => {
-                        match &let_stmt.value {
-                            Expr::Match(m) => {
-                                assert_eq!(m.arms.len(), 3);
-                            }
-                            _ => panic!("expected match expression"),
-                        }
+            Item::Function(func) => match &func.body.stmts[0] {
+                Stmt::Let(let_stmt) => match &let_stmt.value {
+                    Expr::Match(m) => {
+                        assert_eq!(m.arms.len(), 3);
                     }
-                    _ => panic!("expected let statement"),
-                }
-            }
+                    _ => panic!("expected match expression"),
+                },
+                _ => panic!("expected let statement"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2915,14 +2895,12 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match &func.params[0].ty {
-                    TypeExpr::Tuple(t) => {
-                        assert_eq!(t.elements.len(), 3);
-                    }
-                    _ => panic!("expected tuple type"),
+            Item::Function(func) => match &func.params[0].ty {
+                TypeExpr::Tuple(t) => {
+                    assert_eq!(t.elements.len(), 3);
                 }
-            }
+                _ => panic!("expected tuple type"),
+            },
             _ => panic!("expected function"),
         }
     }
@@ -2937,12 +2915,10 @@ mod tests {
         let program = Parser::parse(source).unwrap();
 
         match &program.items[0] {
-            Item::Function(func) => {
-                match func.return_type.as_ref().unwrap() {
-                    TypeExpr::Record(_) => {}
-                    _ => panic!("expected record type"),
-                }
-            }
+            Item::Function(func) => match func.return_type.as_ref().unwrap() {
+                TypeExpr::Record(_) => {}
+                _ => panic!("expected record type"),
+            },
             _ => panic!("expected function"),
         }
     }

@@ -252,11 +252,7 @@ impl PythonGenerator {
             BindingPattern::Object(obj) => {
                 // Python doesn't support object destructuring directly in assignment
                 // We'll just list the variable names - actual unpacking needs separate statements
-                let fields: Vec<_> = obj
-                    .fields
-                    .iter()
-                    .map(|f| f.key.name.clone())
-                    .collect();
+                let fields: Vec<_> = obj.fields.iter().map(|f| f.key.name.clone()).collect();
                 fields.join(", ")
             }
             BindingPattern::Array(arr) => {
@@ -717,7 +713,11 @@ root_agent = {name}
 
         // Add docstring if description exists
         if let Some(desc) = &skill.description {
-            output.push_str(&format!("{}\"\"\"{}.\"\"\"\n\n", self.indent_str(), desc.value));
+            output.push_str(&format!(
+                "{}\"\"\"{}.\"\"\"\n\n",
+                self.indent_str(),
+                desc.value
+            ));
         }
 
         // Generate skill body items

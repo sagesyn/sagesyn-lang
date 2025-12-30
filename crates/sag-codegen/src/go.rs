@@ -380,7 +380,11 @@ impl GoGenerator {
                         }
                         self.indent -= 2;
                     }
-                    result.push_str(&format!("{}}}\n{}}}()\n", "\t".repeat(self.indent + 1), self.indent()));
+                    result.push_str(&format!(
+                        "{}}}\n{}}}()\n",
+                        "\t".repeat(self.indent + 1),
+                        self.indent()
+                    ));
                 }
                 for stmt in &t.try_block.stmts {
                     result.push_str(&self.generate_stmt(stmt));
@@ -421,9 +425,10 @@ impl GoGenerator {
     fn generate_pattern_cases(&mut self, pattern: &Pattern) -> Vec<String> {
         match pattern {
             Pattern::Literal(lit) => vec![self.generate_literal(lit)],
-            Pattern::Or(patterns) => {
-                patterns.iter().flat_map(|p| self.generate_pattern_cases(p)).collect()
-            }
+            Pattern::Or(patterns) => patterns
+                .iter()
+                .flat_map(|p| self.generate_pattern_cases(p))
+                .collect(),
             _ => vec![],
         }
     }
@@ -442,14 +447,18 @@ impl GoGenerator {
             match &arm.pattern {
                 Pattern::Wildcard(_) => {
                     if let Some(guard) = guard_cond {
-                        result.push_str(&format!("\t\tif {guard} {{\n\t\t\treturn {body}\n\t\t}}\n"));
+                        result
+                            .push_str(&format!("\t\tif {guard} {{\n\t\t\treturn {body}\n\t\t}}\n"));
                     } else {
                         result.push_str(&format!("\t\treturn {body}\n"));
                     }
                 }
                 Pattern::Literal(_) | Pattern::Or(_) => {
                     let cases = self.generate_pattern_cases(&arm.pattern);
-                    let case_conditions: Vec<_> = cases.iter().map(|c| format!("__match_subject__ == {c}")).collect();
+                    let case_conditions: Vec<_> = cases
+                        .iter()
+                        .map(|c| format!("__match_subject__ == {c}"))
+                        .collect();
                     let pattern_cond = case_conditions.join(" || ");
 
                     let full_cond = if let Some(guard) = guard_cond {
@@ -459,10 +468,14 @@ impl GoGenerator {
                     };
 
                     if first {
-                        result.push_str(&format!("\t\tif {full_cond} {{\n\t\t\treturn {body}\n\t\t}}"));
+                        result.push_str(&format!(
+                            "\t\tif {full_cond} {{\n\t\t\treturn {body}\n\t\t}}"
+                        ));
                         first = false;
                     } else {
-                        result.push_str(&format!(" else if {full_cond} {{\n\t\t\treturn {body}\n\t\t}}"));
+                        result.push_str(&format!(
+                            " else if {full_cond} {{\n\t\t\treturn {body}\n\t\t}}"
+                        ));
                     }
                 }
                 Pattern::Identifier(ident) => {
