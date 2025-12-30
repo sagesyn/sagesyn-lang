@@ -4,9 +4,9 @@
 
 use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use sag_parser::{
-    Agent, ArrowBody, BinaryOp, Block, ElseClause, Expr, Field, ForStmt, Function, IfStmt, Item,
-    LetStmt, Literal, MatchExpr, Pattern, Program, Skill, Span, Stmt, Tool, TypeDef, TypeDefKind,
-    TypeExpr, UnaryOp, VarStmt, WhileStmt,
+    Agent, ArrowBody, BinaryOp, Block, ElseClause, EventHandler, Expr, Field, ForStmt, Function,
+    IfStmt, Item, LetStmt, Literal, MatchExpr, Pattern, Program, Skill, Span, Stmt, Tool, TypeDef,
+    TypeDefKind, TypeExpr, UnaryOp, VarStmt, WhileStmt,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -498,6 +498,14 @@ impl<'src> TypeChecker<'src> {
         env.define_type("boolean", Type::Boolean);
         env.define_type("timestamp", Type::Timestamp);
 
+        // Register built-in globals
+        // http: HTTP client for making requests
+        env.define("http", Type::Unknown);
+        // console: Logging utilities
+        env.define("console", Type::Unknown);
+        // JSON: JSON serialization
+        env.define("JSON", Type::Unknown);
+
         Self {
             source,
             env,
@@ -592,12 +600,12 @@ impl<'src> TypeChecker<'src> {
         let parent_env = std::mem::take(&mut self.env);
         self.env = parent_env.child();
 
-        // Register state fields in the agent scope
-        if let Some(ref state) = agent.state {
-            for field in &state.fields {
-                let ty = self.resolve_type(&field.ty);
-                self.env.define(&field.name.name, ty);
-            }
+        // Register 'state' as an object with the agent's state fields
+        // This allows accessing state.field_name in handlers
+        if agent.state.is_some() {
+            // For now, state is typed as Unknown to allow any member access
+            // A more sophisticated approach would use a named struct type
+            self.env.define("state", Type::Unknown);
         }
 
         // Register tools as callable functions in the agent scope
@@ -626,10 +634,26 @@ impl<'src> TypeChecker<'src> {
             self.check_tool(tool);
         }
 
-        // Check event handlers
+        // Check event handlers with their own scope
         for handler in &agent.handlers {
-            self.check_block(&handler.body);
+            self.check_handler(handler);
         }
+
+        // Restore parent scope
+        self.env = *self.env.parent.take().unwrap();
+    }
+
+    fn check_handler(&mut self, handler: &EventHandler) {
+        // Create a child scope for the handler
+        let parent_env = std::mem::take(&mut self.env);
+        self.env = parent_env.child();
+
+        // Register 'message' as an object with common event fields
+        // Different events may have different payload types, but we use Unknown for flexibility
+        self.env.define("message", Type::Unknown);
+
+        // Check the handler body
+        self.check_block(&handler.body);
 
         // Restore parent scope
         self.env = *self.env.parent.take().unwrap();
@@ -1081,6 +1105,14 @@ impl<'src> TypeChecker<'src> {
                 *return_type
             }
             Type::Error => Type::Error,
+            // Unknown types are assumed to be callable (e.g., methods on dynamic objects)
+            Type::Unknown => {
+                // Type-check arguments but return Unknown
+                for arg in &call.args {
+                    self.infer_expr(arg);
+                }
+                Type::Unknown
+            }
             _ => {
                 self.errors.push(TypeError::not_callable(
                     &callee_ty.to_string(),

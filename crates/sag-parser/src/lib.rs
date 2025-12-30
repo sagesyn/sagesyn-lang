@@ -1217,6 +1217,12 @@ impl<'src> Parser<'src> {
                 let ident = self.parse_identifier()?;
                 Ok(Expr::Identifier(ident))
             }
+            // Allow 'state' keyword to be used as an identifier in expressions
+            Some(Token::State) => {
+                let span = self.current_span();
+                self.advance();
+                Ok(Expr::Identifier(Identifier::new("state", span)))
+            }
             Some(Token::Await) => {
                 let start = self.current_span();
                 self.advance();
