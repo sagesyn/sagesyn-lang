@@ -4,16 +4,18 @@ Language support for the Sage Agent Programming Language (`.sag` files).
 
 ## Features
 
-### Works Out of the Box
-- **Syntax Highlighting** - Full TextMate grammar for `.sag` files (no additional installation required)
+**Everything works out of the box - no additional installation required!**
 
-### With Language Server (optional)
+- **Syntax Highlighting** - Full TextMate grammar for `.sag` files
 - **Diagnostics** - Real-time error checking as you type
 - **Hover Info** - Type information and documentation on hover
 - **Auto-completion** - Keyword and context-aware suggestions
 - **Go to Definition** - Navigate to tool and type definitions
 
-> **Note:** The extension works without the language server! You get syntax highlighting immediately. Install `sag-lsp` for advanced features.
+The extension includes bundled Language Server binaries for:
+- Linux (x64, ARM64)
+- macOS (Intel, Apple Silicon)
+- Windows (x64)
 
 ## Installation
 
@@ -23,41 +25,19 @@ Language support for the Sage Agent Programming Language (`.sag` files).
 2. Go to Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`)
 3. Search for "Sage Agent Language"
 4. Click Install
+5. Open a `.sag` file - everything works automatically!
 
 ### From VSIX File
 
 ```bash
-code --install-extension sage-agent-language-0.1.1.vsix
+code --install-extension sage-agent-language-0.3.0.vsix
 ```
-
-## Requirements
-
-**Syntax highlighting works immediately** - no additional installation required!
-
-For advanced LSP features (diagnostics, completion, hover), install the `sag-lsp` binary:
-
-### Option 1: Download Pre-built Binary
-
-Download from [GitHub Releases](https://github.com/sagesyn/sagesyn-lang/releases) and add to your PATH.
-
-### Option 2: Build from Source
-
-```bash
-git clone https://github.com/sagesyn/sagesyn-lang.git
-cd sagesyn-lang
-cargo build --release --bin sag-lsp
-```
-
-Then configure the extension:
-- Open Settings (`Cmd+,` / `Ctrl+,`)
-- Search for `sag.server.path`
-- Set to the path of your `sag-lsp` binary
 
 ## Configuration
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `sag.server.path` | Path to sag-lsp binary | (searches PATH) |
+| `sag.server.path` | Custom path to sag-lsp binary (optional) | (uses bundled) |
 | `sag.trace.server` | Trace LSP communication | `off` |
 
 ## Example
@@ -99,11 +79,21 @@ type WeatherData {
 
 - **Agents** - `agent`, `tool`, `state`, `model`, `protocols`, `on`
 - **Control Flow** - `if`, `else`, `for`, `while`, `match`, `return`
+- **Error Handling** - `try`, `catch`, `finally`, `throw`
 - **Functions** - `fn`, `async`, `await`
 - **Types** - `type`, `string`, `number`, `boolean`, `array`, `record`, `optional`, `tuple`
-- **Operators** - Arithmetic, comparison, logical, assignment
+- **Operators** - Arithmetic, comparison, logical, optional chaining (`?.`), null coalescing (`??`)
+- **Patterns** - Destructuring, match expressions with guards
 - **Strings** - Double-quoted and template literals with `${interpolation}`
 - **Comments** - Line (`//`) and block (`/* */`)
+
+---
+
+## Status Bar Indicator
+
+The status bar shows the Language Server state:
+- `✓ Sage LSP` - Full LSP support is active
+- `⚠ Sage (syntax only)` - LSP not available (syntax highlighting still works)
 
 ---
 
@@ -125,8 +115,6 @@ From the repository root:
 cargo build --release --bin sag-lsp
 ```
 
-The binary will be at `target/release/sag-lsp`.
-
 #### Step 2: Install Extension Dependencies
 
 ```bash
@@ -144,8 +132,7 @@ npm run compile
 
 1. Open the `editors/vscode` folder in VS Code
 2. Press `F5` to launch the Extension Development Host
-3. Configure `sag.server.path` in settings to point to the LSP binary
-4. Open a `.sag` file to test
+3. Open a `.sag` file to test
 
 ### Packaging
 
@@ -154,32 +141,6 @@ npm run package
 ```
 
 This creates `sage-agent-language-x.x.x.vsix`.
-
----
-
-## Troubleshooting
-
-### "Sage Language Server (sag-lsp) not found" warning
-
-This is normal if you haven't installed the LSP server yet. Syntax highlighting still works! To enable advanced features:
-1. Install `sag-lsp` (see Requirements section above)
-2. Ensure it's in your PATH, or set `sag.server.path` in settings
-
-### Status Bar Indicator
-
-The status bar shows the current state:
-- `✓ Sage LSP` - Full LSP support is active
-- `⚠ Sage (syntax only)` - LSP not available, syntax highlighting only
-
-### Extension not activating
-
-- Check the Output panel (`View > Output`) and select "Sage Agent Language Server"
-- Ensure the file has `.sag` extension
-
-### No syntax highlighting
-
-- TextMate grammar provides highlighting without the LSP server
-- Full semantic highlighting requires the LSP server to be running
 
 ---
 

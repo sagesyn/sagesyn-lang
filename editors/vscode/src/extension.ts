@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { execFile } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -13,31 +13,60 @@ let client: LanguageClient | null = null;
 let statusBarItem: vscode.StatusBarItem;
 
 /**
- * Check if a command exists in PATH using execFile (safer than exec)
+ * Get the platform identifier for bundled binaries
  */
-function commandExists(command: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    // If it's an absolute path, check if file exists and is executable
-    if (path.isAbsolute(command)) {
-      fs.access(command, fs.constants.X_OK, (err) => {
-        resolve(err ? null : command);
-      });
-      return;
-    }
+function getPlatformId(): string {
+  const platform = os.platform();
+  const arch = os.arch();
 
-    // Use 'which' on Unix, 'where' on Windows
-    const isWindows = process.platform === 'win32';
-    const checkCmd = isWindows ? 'where' : 'which';
+  if (platform === 'linux') {
+    return arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
+  } else if (platform === 'darwin') {
+    return arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+  } else if (platform === 'win32') {
+    return 'win32-x64';
+  }
 
-    // Use execFile with command as argument (safer than exec)
-    execFile(checkCmd, [command], (error, stdout) => {
-      if (error || !stdout.trim()) {
-        resolve(null);
-      } else {
-        resolve(stdout.trim().split('\n')[0]);
+  return `${platform}-${arch}`;
+}
+
+/**
+ * Get the binary name for the current platform
+ */
+function getBinaryName(): string {
+  return os.platform() === 'win32' ? 'sag-lsp.exe' : 'sag-lsp';
+}
+
+/**
+ * Find the sag-lsp binary - first check bundled, then PATH
+ */
+function findServerBinary(context: vscode.ExtensionContext): string | null {
+  // 1. Check user-configured path first
+  const config = vscode.workspace.getConfiguration('sag');
+  const configuredPath = config.get<string>('server.path');
+  if (configuredPath && fs.existsSync(configuredPath)) {
+    return configuredPath;
+  }
+
+  // 2. Check bundled binary in extension
+  const platformId = getPlatformId();
+  const binaryName = getBinaryName();
+  const bundledPath = path.join(context.extensionPath, 'bin', platformId, binaryName);
+
+  if (fs.existsSync(bundledPath)) {
+    // Make sure it's executable on Unix
+    if (os.platform() !== 'win32') {
+      try {
+        fs.chmodSync(bundledPath, 0o755);
+      } catch {
+        // Ignore chmod errors
       }
-    });
-  });
+    }
+    return bundledPath;
+  }
+
+  // 3. Binary not found
+  return null;
 }
 
 /**
@@ -53,12 +82,12 @@ function activateSyntaxOnlyMode(context: vscode.ExtensionContext, reason: string
   context.subscriptions.push(
     vscode.commands.registerCommand('sag.showLspInfo', async () => {
       const selection = await vscode.window.showInformationMessage(
-        'Sage Language Server is not running. Syntax highlighting is available. Install sag-lsp for advanced features like diagnostics, completion, and hover.',
-        'How to Install'
+        'Sage Language Server is not running. Syntax highlighting is available. The bundled LSP binary may not be available for your platform.',
+        'Report Issue'
       );
-      if (selection === 'How to Install') {
+      if (selection === 'Report Issue') {
         vscode.env.openExternal(
-          vscode.Uri.parse('https://github.com/sagesyn/sagesyn-lang#installation')
+          vscode.Uri.parse('https://github.com/sagesyn/sagesyn-lang/issues')
         );
       }
     })
@@ -74,48 +103,36 @@ export async function activate(context: vscode.ExtensionContext) {
   statusBarItem.name = 'Sage Agent';
   context.subscriptions.push(statusBarItem);
 
-  // Get the server path from configuration or use default
-  const config = vscode.workspace.getConfiguration('sag');
-  let serverPath = config.get<string>('server.path') || 'sag-lsp';
+  // Find the server binary
+  const serverPath = findServerBinary(context);
 
-  // Check if the binary exists BEFORE trying to start the client
-  const resolvedPath = await commandExists(serverPath);
+  if (!serverPath) {
+    // Binary not found - activate syntax-only mode
+    const platformId = getPlatformId();
+    activateSyntaxOnlyMode(context, `No binary for ${platformId}`);
 
-  if (!resolvedPath) {
-    // Binary not found - activate syntax-only mode without showing error
-    activateSyntaxOnlyMode(context, 'sag-lsp not found in PATH');
-
-    // Show a one-time warning
-    const dontShowAgainKey = 'sag.dontShowLspWarning';
-    const dontShowAgain = context.globalState.get<boolean>(dontShowAgainKey);
-
-    if (!dontShowAgain) {
-      const selection = await vscode.window.showWarningMessage(
-        'Sage Language Server (sag-lsp) not found. Syntax highlighting works, but install sag-lsp for advanced features.',
-        'How to Install',
-        "Don't Show Again"
-      );
-
-      if (selection === 'How to Install') {
+    vscode.window.showWarningMessage(
+      `Sage Language Server binary not found for your platform (${platformId}). Syntax highlighting is available, but LSP features are disabled.`,
+      'Report Issue'
+    ).then(selection => {
+      if (selection === 'Report Issue') {
         vscode.env.openExternal(
-          vscode.Uri.parse('https://github.com/sagesyn/sagesyn-lang#installation')
+          vscode.Uri.parse('https://github.com/sagesyn/sagesyn-lang/issues')
         );
-      } else if (selection === "Don't Show Again") {
-        context.globalState.update(dontShowAgainKey, true);
       }
-    }
+    });
 
-    return; // Don't try to start LSP
+    return;
   }
 
   // Binary exists - start the LSP client
   const serverOptions: ServerOptions = {
     run: {
-      command: resolvedPath,
+      command: serverPath,
       transport: TransportKind.stdio,
     },
     debug: {
-      command: resolvedPath,
+      command: serverPath,
       transport: TransportKind.stdio,
     },
   };
@@ -153,7 +170,7 @@ export async function activate(context: vscode.ExtensionContext) {
       })
     );
   } catch (error) {
-    // LSP failed to start for some other reason
+    // LSP failed to start
     const message = error instanceof Error ? error.message : String(error);
     client = null;
 

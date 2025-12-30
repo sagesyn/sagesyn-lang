@@ -11,3 +11,6 @@ vsc-extension-quickstart.md
 !out/**/*.js
 *.vsix
 test.sag
+
+# Include bundled binaries
+!bin/**
