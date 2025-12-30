@@ -100,22 +100,27 @@ jobs:
 
       - name: Organize binaries
         run: |
-          mkdir -p bin
+          # Rename sag-lsp-{platform} directories to just {platform}
           for dir in bin/sag-lsp-*/; do
-            platform=$(basename "$dir" | sed 's/sag-lsp-//')
-            mv "$dir"/* "bin/$platform/" 2>/dev/null || true
-            rmdir "$dir" 2>/dev/null || true
+            if [ -d "$dir" ]; then
+              platform=$(basename "$dir" | sed 's/sag-lsp-//')
+              mv "$dir" "bin/$platform"
+            fi
           done
+          echo "=== bin/ contents ==="
           ls -la bin/
+          echo "=== bin/*/ contents ==="
           ls -la bin/*/
         shell: bash
 
       - name: Make binaries executable
         run: |
-          chmod +x bin/linux-x64/sag-lsp || true
-          chmod +x bin/linux-arm64/sag-lsp || true
-          chmod +x bin/darwin-x64/sag-lsp || true
-          chmod +x bin/darwin-arm64/sag-lsp || true
+          chmod +x bin/linux-x64/sag-lsp 2>/dev/null || true
+          chmod +x bin/linux-arm64/sag-lsp 2>/dev/null || true
+          chmod +x bin/darwin-x64/sag-lsp 2>/dev/null || true
+          chmod +x bin/darwin-arm64/sag-lsp 2>/dev/null || true
+          echo "=== Verifying binaries ==="
+          ls -la bin/*/
 
       - name: Install dependencies
         run: npm ci
