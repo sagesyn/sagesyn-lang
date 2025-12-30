@@ -1,0 +1,590 @@
+//! Go code generator.
+
+#![allow(clippy::only_used_in_recursion)]
+
+use super::{CodeGenerator, CodegenError};
+use sag_parser::*;
+
+/// Go code generator.
+pub struct GoGenerator {
+    indent: usize,
+    package_name: String,
+}
+
+impl GoGenerator {
+    /// Create a new Go generator.
+    pub fn new() -> Self {
+        Self {
+            indent: 0,
+            package_name: "main".to_string(),
+        }
+    }
+
+    /// Create a new Go generator with a custom package name.
+    pub fn with_package(package_name: impl Into<String>) -> Self {
+        Self {
+            indent: 0,
+            package_name: package_name.into(),
+        }
+    }
+
+    fn indent(&self) -> String {
+        "\t".repeat(self.indent)
+    }
+
+    fn generate_type(&self, ty: &TypeExpr) -> String {
+        match ty {
+            TypeExpr::Named(named) => {
+                let name = match named.name.name.as_str() {
+                    "string" => "string".to_string(),
+                    "number" => "float64".to_string(),
+                    "boolean" => "bool".to_string(),
+                    "timestamp" => "time.Time".to_string(),
+                    other => other.to_string(),
+                };
+                if named.args.is_empty() {
+                    name
+                } else {
+                    // Go doesn't have generics for user types in this context
+                    name
+                }
+            }
+            TypeExpr::Array(arr) => {
+                format!("[]{}", self.generate_type(&arr.element))
+            }
+            TypeExpr::Record(rec) => {
+                format!(
+                    "map[{}]{}",
+                    self.generate_type(&rec.key),
+                    self.generate_type(&rec.value)
+                )
+            }
+            TypeExpr::Tuple(tup) => {
+                // Go doesn't have tuples, use struct
+                let fields: Vec<_> = tup
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| format!("F{} {}", i, self.generate_type(t)))
+                    .collect();
+                format!("struct {{ {} }}", fields.join("; "))
+            }
+            TypeExpr::Optional(inner) => {
+                format!("*{}", self.generate_type(inner))
+            }
+            TypeExpr::Union(_) => {
+                // Go doesn't have union types, use interface{}
+                "interface{}".to_string()
+            }
+            TypeExpr::Function(func) => {
+                let params: Vec<_> = func.params.iter().map(|t| self.generate_type(t)).collect();
+                format!(
+                    "func({}) {}",
+                    params.join(", "),
+                    self.generate_type(&func.return_type)
+                )
+            }
+        }
+    }
+
+    fn generate_expr(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Literal(lit) => self.generate_literal(lit),
+            Expr::Identifier(ident) => ident.name.clone(),
+            Expr::Binary(bin) => {
+                let left = self.generate_expr(&bin.left);
+                let right = self.generate_expr(&bin.right);
+                let op = match bin.op {
+                    BinaryOp::Add => "+",
+                    BinaryOp::Sub => "-",
+                    BinaryOp::Mul => "*",
+                    BinaryOp::Div => "/",
+                    BinaryOp::Mod => "%",
+                    BinaryOp::Pow => {
+                        return format!("math.Pow({left}, {right})");
+                    }
+                    BinaryOp::Eq => "==",
+                    BinaryOp::NotEq => "!=",
+                    BinaryOp::Lt => "<",
+                    BinaryOp::LtEq => "<=",
+                    BinaryOp::Gt => ">",
+                    BinaryOp::GtEq => ">=",
+                    BinaryOp::And => "&&",
+                    BinaryOp::Or => "||",
+                };
+                format!("({left} {op} {right})")
+            }
+            Expr::Unary(un) => {
+                let operand = self.generate_expr(&un.operand);
+                let op = match un.op {
+                    UnaryOp::Not => "!",
+                    UnaryOp::Neg => "-",
+                };
+                format!("{op}{operand}")
+            }
+            Expr::Call(call) => {
+                let callee = self.generate_expr(&call.callee);
+                let args: Vec<_> = call.args.iter().map(|a| self.generate_expr(a)).collect();
+                format!("{}({})", callee, args.join(", "))
+            }
+            Expr::Member(mem) => {
+                format!("{}.{}", self.generate_expr(&mem.object), mem.property.name)
+            }
+            Expr::Index(idx) => {
+                format!(
+                    "{}[{}]",
+                    self.generate_expr(&idx.object),
+                    self.generate_expr(&idx.index)
+                )
+            }
+            Expr::Array(arr) => {
+                let elements: Vec<_> = arr.elements.iter().map(|e| self.generate_expr(e)).collect();
+                format!("[]interface{{}}{{{}}}", elements.join(", "))
+            }
+            Expr::Record(rec) => {
+                let fields: Vec<_> = rec
+                    .fields
+                    .iter()
+                    .map(|(k, v)| format!("\"{}\": {}", k.name, self.generate_expr(v)))
+                    .collect();
+                format!("map[string]interface{{}}{{{}}}", fields.join(", "))
+            }
+            Expr::Await(aw) => {
+                // Go uses goroutines/channels, not await
+                format!("<-{}", self.generate_expr(&aw.expr))
+            }
+            Expr::Arrow(arrow) => {
+                let params: Vec<_> = arrow
+                    .params
+                    .iter()
+                    .map(|p| format!("{} {}", p.name.name, self.generate_type(&p.ty)))
+                    .collect();
+                let body = match &arrow.body {
+                    ArrowBody::Expr(e) => format!("return {}", self.generate_expr(e)),
+                    ArrowBody::Block(_) => "/* block */".to_string(),
+                };
+                format!("func({}) {{ {} }}", params.join(", "), body)
+            }
+            Expr::Match(_) => "/* match expression */".to_string(),
+            Expr::Template(tmpl) => {
+                let mut parts = Vec::new();
+                let mut format_args = Vec::new();
+
+                for p in &tmpl.parts {
+                    match p {
+                        TemplatePart::String(s) => parts.push(s.replace('%', "%%")),
+                        TemplatePart::Expr(e) => {
+                            parts.push("%v".to_string());
+                            format_args.push(self.generate_expr(e));
+                        }
+                    }
+                }
+
+                if format_args.is_empty() {
+                    format!("\"{}\"", parts.join(""))
+                } else {
+                    format!(
+                        "fmt.Sprintf(\"{}\", {})",
+                        parts.join(""),
+                        format_args.join(", ")
+                    )
+                }
+            }
+            Expr::Assign(assign) => {
+                format!(
+                    "{} = {}",
+                    self.generate_expr(&assign.target),
+                    self.generate_expr(&assign.value)
+                )
+            }
+        }
+    }
+
+    fn generate_literal(&self, lit: &Literal) -> String {
+        match lit {
+            Literal::String(s) => format!("\"{}\"", s.value.replace('\"', "\\\"")),
+            Literal::Number(n) => n.value.to_string(),
+            Literal::Boolean(b) => b.value.to_string(),
+            Literal::Null(_) => "nil".to_string(),
+        }
+    }
+
+    fn generate_stmt(&mut self, stmt: &Stmt) -> String {
+        match stmt {
+            Stmt::Let(l) => {
+                format!(
+                    "{}{} := {}",
+                    self.indent(),
+                    l.name.name,
+                    self.generate_expr(&l.value)
+                )
+            }
+            Stmt::Var(v) => {
+                let ty =
+                    v.ty.as_ref()
+                        .map(|t| format!(" {}", self.generate_type(t)))
+                        .unwrap_or_default();
+                format!(
+                    "{}var {}{}= {}",
+                    self.indent(),
+                    v.name.name,
+                    ty,
+                    self.generate_expr(&v.value)
+                )
+            }
+            Stmt::Expr(e) => {
+                format!("{}{}", self.indent(), self.generate_expr(&e.expr))
+            }
+            Stmt::If(i) => {
+                let mut result =
+                    format!("{}if {} ", self.indent(), self.generate_expr(&i.condition));
+                result.push_str(&self.generate_block(&i.then_block));
+                if let Some(else_clause) = &i.else_block {
+                    match else_clause.as_ref() {
+                        ElseClause::ElseIf(elif) => {
+                            result.push_str(" else ");
+                            result.push_str(&self.generate_stmt(&Stmt::If(elif.clone())));
+                        }
+                        ElseClause::Else(block) => {
+                            result.push_str(" else ");
+                            result.push_str(&self.generate_block(block));
+                        }
+                    }
+                }
+                result
+            }
+            Stmt::For(f) => {
+                format!(
+                    "{}for _, {} := range {} {}",
+                    self.indent(),
+                    f.binding.name,
+                    self.generate_expr(&f.iterable),
+                    self.generate_block(&f.body)
+                )
+            }
+            Stmt::While(w) => {
+                format!(
+                    "{}for {} {}",
+                    self.indent(),
+                    self.generate_expr(&w.condition),
+                    self.generate_block(&w.body)
+                )
+            }
+            Stmt::Return(r) => match &r.value {
+                Some(v) => format!("{}return {}", self.indent(), self.generate_expr(v)),
+                None => format!("{}return", self.indent()),
+            },
+            Stmt::Emit(e) => {
+                format!(
+                    "{}a.Emit(\"{}\", {})",
+                    self.indent(),
+                    e.event.name,
+                    self.generate_expr(&e.value)
+                )
+            }
+            Stmt::Block(b) => self.generate_block(b),
+        }
+    }
+
+    fn generate_block(&mut self, block: &Block) -> String {
+        let mut result = "{\n".to_string();
+        self.indent += 1;
+        for stmt in &block.stmts {
+            result.push_str(&self.generate_stmt(stmt));
+            result.push('\n');
+        }
+        self.indent -= 1;
+        result.push_str(&self.indent());
+        result.push('}');
+        result
+    }
+
+    fn generate_field(&self, field: &Field) -> String {
+        let name = capitalize(&field.name.name);
+        let ty = self.generate_type(&field.ty);
+        let json_tag = field.name.name.clone();
+        let omitempty = if field.optional { ",omitempty" } else { "" };
+        format!("{name} {ty} `json:\"{json_tag}{omitempty}\"`")
+    }
+
+    fn generate_typedef(&self, typedef: &TypeDef) -> String {
+        match &typedef.kind {
+            TypeDefKind::Struct(fields) => {
+                let mut result = format!("type {} struct {{\n", typedef.name.name);
+                for field in fields {
+                    result.push('\t');
+                    result.push_str(&self.generate_field(field));
+                    result.push('\n');
+                }
+                result.push_str("}\n");
+                result
+            }
+            TypeDefKind::Alias(ty) => {
+                format!("type {} = {}\n", typedef.name.name, self.generate_type(ty))
+            }
+        }
+    }
+
+    fn generate_function(&mut self, func: &Function) -> String {
+        let params: Vec<_> = func
+            .params
+            .iter()
+            .map(|p| format!("{} {}", p.name.name, self.generate_type(&p.ty)))
+            .collect();
+        let return_type = func
+            .return_type
+            .as_ref()
+            .map(|t| format!(" {}", self.generate_type(t)))
+            .unwrap_or_default();
+
+        format!(
+            "func {}({}){}{}",
+            capitalize(&func.name.name),
+            params.join(", "),
+            return_type,
+            self.generate_block(&func.body)
+        )
+    }
+
+    fn generate_agent(&mut self, agent: &Agent) -> String {
+        let mut result = String::new();
+
+        // Generate struct for the agent
+        result.push_str(&format!("type {} struct {{\n", agent.name.name));
+        self.indent += 1;
+
+        // State fields
+        if let Some(state) = &agent.state {
+            for field in &state.fields {
+                result.push_str(&self.indent());
+                result.push_str(&self.generate_field(field));
+                result.push('\n');
+            }
+        }
+
+        self.indent -= 1;
+        result.push_str("}\n\n");
+
+        // Constructor
+        result.push_str(&format!(
+            "func New{}() *{} {{\n",
+            agent.name.name, agent.name.name
+        ));
+        result.push_str(&format!("\treturn &{}{{}}\n", agent.name.name));
+        result.push_str("}\n\n");
+
+        // Description method
+        if let Some(desc) = &agent.description {
+            result.push_str(&format!(
+                "func (a *{}) Description() string {{\n",
+                agent.name.name
+            ));
+            result.push_str(&format!("\treturn \"{}\"\n", desc.value));
+            result.push_str("}\n\n");
+        }
+
+        // Version method
+        if let Some(ver) = &agent.version {
+            result.push_str(&format!(
+                "func (a *{}) Version() string {{\n",
+                agent.name.name
+            ));
+            result.push_str(&format!("\treturn \"{}\"\n", ver.value));
+            result.push_str("}\n\n");
+        }
+
+        // Tools
+        for tool in &agent.tools {
+            result.push_str(&self.generate_tool(tool, &agent.name.name));
+            result.push('\n');
+        }
+
+        // Event handlers
+        for handler in &agent.handlers {
+            result.push_str(&self.generate_handler(handler, &agent.name.name));
+            result.push('\n');
+        }
+
+        result
+    }
+
+    fn generate_tool(&mut self, tool: &Tool, agent_name: &str) -> String {
+        let params: Vec<_> = tool
+            .params
+            .iter()
+            .map(|p| format!("{} {}", p.name.name, self.generate_type(&p.ty)))
+            .collect();
+        let return_type = tool
+            .return_type
+            .as_ref()
+            .map(|t| format!(" {}", self.generate_type(t)))
+            .unwrap_or_default();
+
+        let mut result = format!(
+            "func (a *{}) {}({}){}",
+            agent_name,
+            capitalize(&tool.name.name),
+            params.join(", "),
+            return_type
+        );
+
+        if let Some(body) = &tool.body {
+            result.push(' ');
+            result.push_str(&self.generate_block(body));
+        } else {
+            result.push_str(" {\n\tpanic(\"not implemented\")\n}");
+        }
+        result.push('\n');
+        result
+    }
+
+    fn generate_handler(&mut self, handler: &EventHandler, agent_name: &str) -> String {
+        let method_name = format!("On{}", capitalize(&handler.event.name));
+        let mut result = format!("func (a *{agent_name}) {method_name}(message interface{{}}) ");
+        result.push_str(&self.generate_block(&handler.body));
+        result.push('\n');
+        result
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+impl Default for GoGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CodeGenerator for GoGenerator {
+    fn generate(&self, program: &Program) -> Result<String, CodegenError> {
+        let mut gen = GoGenerator::with_package(&self.package_name);
+        let mut output = String::new();
+
+        // Header comment
+        output.push_str("// Generated by Sage Agent Compiler\n");
+        output.push_str("// Do not edit manually\n\n");
+
+        // Package declaration
+        output.push_str(&format!("package {}\n\n", gen.package_name));
+
+        // Collect imports
+        let mut needs_fmt = false;
+        let mut needs_time = false;
+
+        for item in &program.items {
+            if let Item::Agent(agent) = item {
+                for tool in &agent.tools {
+                    if tool.body.is_some() {
+                        needs_fmt = true;
+                    }
+                }
+            }
+            // Check for timestamp types
+            fn check_type_for_time(ty: &TypeExpr) -> bool {
+                match ty {
+                    TypeExpr::Named(n) => n.name.name == "timestamp",
+                    TypeExpr::Array(a) => check_type_for_time(&a.element),
+                    TypeExpr::Optional(o) => check_type_for_time(o),
+                    _ => false,
+                }
+            }
+            if let Item::TypeDef(td) = item {
+                if let TypeDefKind::Struct(fields) = &td.kind {
+                    for f in fields {
+                        if check_type_for_time(&f.ty) {
+                            needs_time = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate imports
+        if needs_fmt || needs_time {
+            output.push_str("import (\n");
+            if needs_fmt {
+                output.push_str("\t\"fmt\"\n");
+            }
+            if needs_time {
+                output.push_str("\t\"time\"\n");
+            }
+            output.push_str(")\n\n");
+        }
+
+        for item in &program.items {
+            match item {
+                Item::Agent(agent) => {
+                    output.push_str(&gen.generate_agent(agent));
+                    output.push('\n');
+                }
+                Item::TypeDef(typedef) => {
+                    output.push_str(&gen.generate_typedef(typedef));
+                    output.push('\n');
+                }
+                Item::Function(func) => {
+                    output.push_str(&gen.generate_function(func));
+                    output.push('\n');
+                }
+                Item::Skill(_) => {
+                    // Skills are expanded at compile time
+                }
+            }
+        }
+
+        Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sag_parser::Parser;
+
+    #[test]
+    fn test_generate_empty_agent() {
+        let source = "agent MyAgent { }";
+        let program = Parser::parse(source).unwrap();
+        let generator = GoGenerator::new();
+        let output = generator.generate(&program).unwrap();
+
+        assert!(output.contains("type MyAgent struct"));
+        assert!(output.contains("func NewMyAgent()"));
+    }
+
+    #[test]
+    fn test_generate_type_def() {
+        let source = r#"
+            type User {
+                name: string
+                age: number
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let generator = GoGenerator::new();
+        let output = generator.generate(&program).unwrap();
+
+        assert!(output.contains("type User struct"));
+        assert!(output.contains("Name string"));
+        assert!(output.contains("Age float64"));
+    }
+
+    #[test]
+    fn test_generate_function() {
+        let source = r#"
+            fn add(a: number, b: number) -> number {
+                return a + b
+            }
+        "#;
+        let program = Parser::parse(source).unwrap();
+        let generator = GoGenerator::new();
+        let output = generator.generate(&program).unwrap();
+
+        assert!(output.contains("func Add(a float64, b float64) float64"));
+    }
+}

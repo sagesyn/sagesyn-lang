@@ -2,6 +2,7 @@
 //!
 //! This crate generates code in various target languages from an AST.
 
+pub mod go;
 pub mod python;
 pub mod typescript;
 
@@ -73,6 +74,9 @@ pub fn generate(program: &Program, target: Target) -> Result<String, CodegenErro
             let generator = python::PythonGenerator::new();
             generator.generate(program)
         }
-        Target::Go => Err(CodegenError::new("Go target not yet implemented")),
+        Target::Go => {
+            let generator = go::GoGenerator::new();
+            generator.generate(program)
+        }
     }
 }
