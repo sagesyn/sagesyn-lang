@@ -10,8 +10,10 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::info;
 
 mod semantic_tokens;
+mod symbols;
 
 use semantic_tokens::{SemanticTokensBuilder, LEGEND};
+use symbols::SymbolTable;
 
 /// Document state stored for each open file.
 struct Document {
@@ -19,6 +21,10 @@ struct Document {
     content: Rope,
     /// The document version.
     version: i32,
+    /// Parsed program (if successful).
+    program: Option<sag_parser::Program>,
+    /// Symbol table for the document.
+    symbols: Option<SymbolTable>,
 }
 
 /// The Sage Language Server.
@@ -39,7 +45,7 @@ impl SagLanguageServer {
 
     /// Validate a document and publish diagnostics.
     async fn validate_document(&self, uri: &Url) {
-        let Some(doc) = self.documents.get(uri) else {
+        let Some(mut doc) = self.documents.get_mut(uri) else {
             return;
         };
 
@@ -49,6 +55,11 @@ impl SagLanguageServer {
         // Parse the document
         match sag_parser::Parser::parse(&source) {
             Ok(program) => {
+                // Build symbol table
+                let symbols = SymbolTable::from_program(&program);
+                doc.symbols = Some(symbols);
+                doc.program = Some(program.clone());
+
                 // Type check
                 if let Err(errors) = sag_types::TypeChecker::check(&source, &program) {
                     for error in errors {
@@ -65,6 +76,8 @@ impl SagLanguageServer {
                 }
             }
             Err(error) => {
+                doc.program = None;
+                doc.symbols = None;
                 let range = span_to_range(&source, error.span());
                 diagnostics.push(Diagnostic {
                     range,
@@ -76,6 +89,8 @@ impl SagLanguageServer {
                 });
             }
         }
+
+        drop(doc); // Release lock before async call
 
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
@@ -104,6 +119,42 @@ impl SagLanguageServer {
 
         let mut completions = Vec::new();
 
+        // Add user-defined symbols from the document
+        if let Some(symbols) = &doc.symbols {
+            for (name, defs) in &symbols.definitions {
+                if name.starts_with(&last_word) || last_word.is_empty() {
+                    if let Some(def) = defs.first() {
+                        let kind = match def.kind {
+                            symbols::SymbolKind::Agent => CompletionItemKind::CLASS,
+                            symbols::SymbolKind::Tool => CompletionItemKind::METHOD,
+                            symbols::SymbolKind::Function => CompletionItemKind::FUNCTION,
+                            symbols::SymbolKind::Type => CompletionItemKind::STRUCT,
+                            symbols::SymbolKind::Field | symbols::SymbolKind::StateField => {
+                                CompletionItemKind::FIELD
+                            }
+                            symbols::SymbolKind::Parameter | symbols::SymbolKind::Variable => {
+                                CompletionItemKind::VARIABLE
+                            }
+                            symbols::SymbolKind::Skill => CompletionItemKind::MODULE,
+                            symbols::SymbolKind::EventHandler => CompletionItemKind::EVENT,
+                        };
+                        completions.push(CompletionItem {
+                            label: name.clone(),
+                            kind: Some(kind),
+                            detail: def.type_info.clone(),
+                            documentation: def.doc.as_ref().map(|d| {
+                                Documentation::MarkupContent(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value: d.clone(),
+                                })
+                            }),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
         // Keywords
         let keywords = [
             ("agent", "Define an agent", CompletionItemKind::KEYWORD),
@@ -115,13 +166,19 @@ impl SagLanguageServer {
             ("emit", "Emit an event", CompletionItemKind::KEYWORD),
             ("let", "Variable binding", CompletionItemKind::KEYWORD),
             ("var", "Mutable variable", CompletionItemKind::KEYWORD),
+            ("const", "Constant binding", CompletionItemKind::KEYWORD),
             ("if", "Conditional", CompletionItemKind::KEYWORD),
             ("else", "Else branch", CompletionItemKind::KEYWORD),
             ("for", "For loop", CompletionItemKind::KEYWORD),
             ("while", "While loop", CompletionItemKind::KEYWORD),
+            ("match", "Pattern matching", CompletionItemKind::KEYWORD),
             ("return", "Return statement", CompletionItemKind::KEYWORD),
             ("await", "Await expression", CompletionItemKind::KEYWORD),
             ("async", "Async function", CompletionItemKind::KEYWORD),
+            ("try", "Try block", CompletionItemKind::KEYWORD),
+            ("catch", "Catch block", CompletionItemKind::KEYWORD),
+            ("finally", "Finally block", CompletionItemKind::KEYWORD),
+            ("throw", "Throw expression", CompletionItemKind::KEYWORD),
             ("model", "Model configuration", CompletionItemKind::KEYWORD),
             ("state", "Agent state", CompletionItemKind::KEYWORD),
             (
@@ -158,6 +215,7 @@ impl SagLanguageServer {
             ("array", "Array type"),
             ("record", "Record/map type"),
             ("optional", "Optional type"),
+            ("tuple", "Tuple type"),
         ];
 
         for (name, detail) in types {
@@ -232,6 +290,24 @@ impl SagLanguageServer {
             });
         }
 
+        if last_word.is_empty() || "try".starts_with(&last_word) {
+            completions.push(CompletionItem {
+                label: "try-catch (snippet)".to_string(),
+                kind: Some(CompletionItemKind::SNIPPET),
+                insert_text: Some(
+                    r#"try {
+  ${1}
+} catch (${2:error}) {
+  ${0}
+}"#
+                    .to_string(),
+                ),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                detail: Some("Try-catch template".to_string()),
+                ..Default::default()
+            });
+        }
+
         completions
     }
 
@@ -241,7 +317,34 @@ impl SagLanguageServer {
         let source = doc.content.to_string();
         let offset = position_to_offset(&source, position);
 
-        // Find the word at the position
+        // Try to get hover from symbol table
+        if let Some(symbols) = &doc.symbols {
+            if let Some(info) = symbols.get_hover_info(offset) {
+                // Find the word range
+                let start = source[..offset]
+                    .chars()
+                    .rev()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .count();
+                let end = source[offset..]
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .count();
+
+                return Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: info,
+                    }),
+                    range: Some(Range {
+                        start: offset_to_position(&source, offset - start),
+                        end: offset_to_position(&source, offset + end),
+                    }),
+                });
+            }
+        }
+
+        // Fall back to built-in keyword hover
         let start = source[..offset]
             .chars()
             .rev()
@@ -256,7 +359,6 @@ impl SagLanguageServer {
         let word_end = offset + end;
         let word = &source[word_start..word_end];
 
-        // Provide hover info for keywords and types
         let info = match word {
             "agent" => Some("**agent** - Define an AI agent with tools, state, and event handlers."),
             "tool" => Some("**tool** - Define a tool that the agent can use. Can have inline implementation or MCP binding."),
@@ -268,6 +370,11 @@ impl SagLanguageServer {
             "state" => Some("**state** - Define agent state that persists across interactions."),
             "model" => Some("**model** - Configure the LLM model for the agent."),
             "protocols" => Some("**protocols** - Configure protocol bindings (MCP, A2A, AG-UI)."),
+            "try" => Some("**try** - Begin a try block for error handling."),
+            "catch" => Some("**catch** - Handle errors from a try block."),
+            "finally" => Some("**finally** - Code that always runs after try/catch."),
+            "throw" => Some("**throw** - Throw an error."),
+            "match" => Some("**match** - Pattern matching expression."),
             "string" => Some("**string** - Text type."),
             "number" => Some("**number** - Numeric type (64-bit float)."),
             "boolean" => Some("**boolean** - Boolean type (`true` or `false`)."),
@@ -347,6 +454,12 @@ impl LanguageServer for SagLanguageServer {
                     ),
                 ),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -380,6 +493,8 @@ impl LanguageServer for SagLanguageServer {
             Document {
                 content: Rope::from_str(&content),
                 version,
+                program: None,
+                symbols: None,
             },
         );
 
@@ -444,71 +559,122 @@ impl LanguageServer for SagLanguageServer {
         let source = doc.content.to_string();
         let offset = position_to_offset(&source, position);
 
-        // Find the word at position
-        let start = source[..offset]
-            .chars()
-            .rev()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .count();
-        let word_start = offset - start;
-        let end = source[offset..]
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .count();
-        let word = &source[word_start..offset + end];
+        // Use symbol table for better definition lookup
+        if let Some(symbols) = &doc.symbols {
+            if let Some(def) = symbols.find_definition_at(offset) {
+                let range = span_to_range(&source, def.span);
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range,
+                })));
+            }
+        }
 
-        // Try to parse and find definition
-        if let Ok(program) = sag_parser::Parser::parse(&source) {
-            // Search for type definitions
-            for item in &program.items {
-                match item {
-                    sag_parser::Item::TypeDef(typedef) => {
-                        if typedef.name.name == word {
-                            let range = span_to_range(&source, typedef.name.span);
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                uri: uri.clone(),
-                                range,
-                            })));
-                        }
-                    }
-                    sag_parser::Item::Function(func) => {
-                        if func.name.name == word {
-                            let range = span_to_range(&source, func.name.span);
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                uri: uri.clone(),
-                                range,
-                            })));
-                        }
-                    }
-                    sag_parser::Item::Agent(agent) => {
-                        if agent.name.name == word {
-                            let range = span_to_range(&source, agent.name.span);
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                uri: uri.clone(),
-                                range,
-                            })));
-                        }
-                        // Check tools within agent
-                        for tool in &agent.tools {
-                            if tool.name.name == word {
-                                let range = span_to_range(&source, tool.name.span);
-                                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                    uri: uri.clone(),
-                                    range,
-                                })));
-                            }
-                        }
-                    }
-                    sag_parser::Item::Skill(skill) => {
-                        if skill.name.name == word {
-                            let range = span_to_range(&source, skill.name.span);
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                uri: uri.clone(),
-                                range,
-                            })));
-                        }
-                    }
-                }
+        Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let Some(doc) = self.documents.get(&uri) else {
+            return Ok(None);
+        };
+
+        let source = doc.content.to_string();
+        let offset = position_to_offset(&source, position);
+
+        if let Some(symbols) = &doc.symbols {
+            let refs = symbols.find_references_at(offset);
+            if !refs.is_empty() {
+                let locations: Vec<Location> = refs
+                    .iter()
+                    .map(|span| Location {
+                        uri: uri.clone(),
+                        range: span_to_range(&source, *span),
+                    })
+                    .collect();
+                return Ok(Some(locations));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+
+        let Some(doc) = self.documents.get(&uri) else {
+            return Ok(None);
+        };
+
+        let source = doc.content.to_string();
+
+        if let Some(program) = &doc.program {
+            let symbols = symbols::get_document_symbols(program, &source);
+            return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
+        }
+
+        Ok(None)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        let Some(doc) = self.documents.get(&uri) else {
+            return Ok(None);
+        };
+
+        let source = doc.content.to_string();
+        let offset = position_to_offset(&source, position);
+
+        if let Some(symbols) = &doc.symbols {
+            if let Some(def) = symbols.find_definition_at(offset) {
+                let range = span_to_range(&source, def.span);
+                return Ok(Some(PrepareRenameResponse::Range(range)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        let Some(doc) = self.documents.get(&uri) else {
+            return Ok(None);
+        };
+
+        let source = doc.content.to_string();
+        let offset = position_to_offset(&source, position);
+
+        if let Some(symbols) = &doc.symbols {
+            let refs = symbols.find_references_at(offset);
+            if !refs.is_empty() {
+                let edits: Vec<TextEdit> = refs
+                    .iter()
+                    .map(|span| TextEdit {
+                        range: span_to_range(&source, *span),
+                        new_text: new_name.clone(),
+                    })
+                    .collect();
+
+                let mut changes = std::collections::HashMap::new();
+                changes.insert(uri, edits);
+
+                return Ok(Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                }));
             }
         }
 
@@ -525,7 +691,7 @@ impl LanguageServer for SagLanguageServer {
 }
 
 /// Convert a span to an LSP range.
-fn span_to_range(source: &str, span: sag_parser::Span) -> Range {
+fn span_to_range(source: &str, span: sag_lexer::Span) -> Range {
     Range {
         start: offset_to_position(source, span.start),
         end: offset_to_position(source, span.end),

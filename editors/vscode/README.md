@@ -7,10 +7,14 @@ Language support for the Sage Agent Programming Language (`.sag` files).
 **Everything works out of the box - no additional installation required!**
 
 - **Syntax Highlighting** - Full TextMate grammar for `.sag` files
+- **Semantic Highlighting** - Rich token-based highlighting
 - **Diagnostics** - Real-time error checking as you type
 - **Hover Info** - Type information and documentation on hover
-- **Auto-completion** - Keyword and context-aware suggestions
-- **Go to Definition** - Navigate to tool and type definitions
+- **Auto-completion** - Keywords, types, snippets, and user-defined symbols
+- **Go to Definition** - Navigate to symbol definitions (F12)
+- **Find All References** - Find all usages of a symbol (Shift+F12)
+- **Rename Symbol** - Rename across all references (F2)
+- **Document Outline** - Navigate agents, tools, types in the outline view
 
 The extension includes bundled Language Server binaries for:
 - Linux (x64, ARM64)
@@ -30,7 +34,7 @@ The extension includes bundled Language Server binaries for:
 ### From VSIX File
 
 ```bash
-code --install-extension sage-agent-language-0.3.0.vsix
+code --install-extension sage-agent-language-0.4.0.vsix
 ```
 
 ## Configuration
